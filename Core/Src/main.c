@@ -18,10 +18,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dma.h"
+#include "tim.h"
+#include "usart.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "circular_reading_buffer.h"
+#include <stdint.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,8 +40,8 @@
 // Buffer to hold rx data
 char buffer[50] = {0};
 uint8_t msg_rdy = 0;
-uint16_t index = 0;
 int done = 0;
+int idx = 0;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,24 +50,16 @@ int done = 0;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim2;
-
-UART_HandleTypeDef huart2;
-DMA_HandleTypeDef hdma_usart2_rx;
-DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
 uint8_t rxChar;
 volatile int mailFlag = 0;
-
+rdg_buf_struct* dma_reader;
+uint8_t rx_dma_buffer[RX_DMA_SIZE];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_USART2_UART_Init(void);
-static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -89,7 +86,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  dma_reader = rdg_buf_init(RX_DMA_SIZE);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -105,14 +102,38 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  // starting timers
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_UART_Receive_IT(&huart2, &rxChar, 1);
+
+  // enabling receiver timeout
+  huart2.Instance->RTOR = 1000;  // timeout value
+  SET_BIT(huart2.Instance->CR2, USART_CR2_RTOEN);
+  SET_BIT(huart2.Instance->CR1, USART_CR1_RTOIE);
+
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_dma_buffer, RX_DMA_SIZE);
+  // Turn off DMA half-transfer + transfer-complete interupts
+  __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
+  __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_TC);
+
+  // Try receiver timeout interrupt on huart2
+  __HAL_UART_ENABLE_IT(&huart2, UART_IT_RTO);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  if (got_msg == true)
+	  {
+		  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
+		  HAL_UART_Transmit(&huart2, dma_reader->buffer, (size_t)msg_size, 1000);
+		  flush_buffer(dma_reader);
+		  got_msg = false;
+	  }
+
+
 	  // initial testing with Rod
 //	  HAL_Delay(19);
 //	  HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
@@ -153,7 +174,7 @@ int main(void)
 //	  char waitingMsg[] = "Waiting for command...\r\n";
 //	  HAL_UART_Transmit(&huart2, (uint8_t*)waitingMsg, sizeof(waitingMsg), 1000);
 //
-//	  uint16_t index = 0;
+//	  uint16_t idx = 0;
 //	  int done = 0;
 //
 //	  while(done == 0)
@@ -161,14 +182,14 @@ int main(void)
 //		  HAL_UART_Receive(&huart2, (uint8_t*)&receivedChar, 1, HAL_MAX_DELAY);
 //		  if (receivedChar == '\r')
 //		  {
-//			  buffer[index] = '\0';
+//			  buffer[idx] = '\0';
 //			  done = 1;
 //		  }
 //		  else
 //		  {
-//			  buffer[index] = receivedChar;
-//			  index++;
-//			  if (index == sizeof(buffer))
+//			  buffer[idx] = receivedChar;
+//			  idx++;
+//			  if (idx == sizeof(buffer))
 //			  {
 //				  break;
 //			  }
@@ -178,31 +199,31 @@ int main(void)
 //
 //	 char gotMsg[] = "Got: ";
 //	 HAL_UART_Transmit(&huart2, (uint8_t*)gotMsg, sizeof(gotMsg), 1000);
-//	 HAL_UART_Transmit(&huart2, (uint8_t*)buffer, (uint16_t)index, 1000);
+//	 HAL_UART_Transmit(&huart2, (uint8_t*)buffer, (uint16_t)idx, 1000);
 //	 HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n", 2, 1000);
 
 
 
 
 
-	  // Communication testing with clock and interrupt on my own
-	  if (mailFlag == 1)
-	  {
-		  char msg = rxChar;
-		  buffer[index] = rxChar;
-		  index++;
-		  if (msg == '\r')
-		  {
-			  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, (size_t)index, 1000);
-			  index = 0;
-
-		  }
-
-		  mailFlag = 0;
-	  }
-
-	  HAL_GPIO_TogglePin(debug_pin_GPIO_Port, debug_pin_Pin);
-	  HAL_Delay(19);
+//	  // Communication testing with clock and interrupt on my own
+//	  if (mailFlag == 1)
+//	  {
+//		  char msg = rxChar;
+//		  buffer[idx] = rxChar;
+//		  idx++;
+//		  if (msg == '\r')
+//		  {
+//			  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, (size_t)idx, 1000);
+//			  idx = 0;
+//
+//		  }
+//
+//		  mailFlag = 0;
+//	  }
+//
+//	  HAL_GPIO_TogglePin(debug_pin_GPIO_Port, debug_pin_Pin);
+//	  HAL_Delay(19);
 
 
     /* USER CODE END WHILE */
@@ -248,147 +269,6 @@ void SystemClock_Config(void)
   }
 }
 
-/**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 7999;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 19;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-
-}
-
-/**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART2_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 38400;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
-
-}
-
-/**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel6_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
-  /* DMA1_Channel7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOF_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(debug_pin_GPIO_Port, debug_pin_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : debug_pin_Pin */
-  GPIO_InitStruct.Pin = debug_pin_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(debug_pin_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : LED_Pin */
-  GPIO_InitStruct.Pin = LED_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
-}
-
 /* USER CODE BEGIN 4 */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
@@ -400,11 +280,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	if (huart->Instance == USART2)
-	{
-		mailFlag = 1;
-		HAL_UART_Receive_IT(&huart2, &rxChar, 1);
-	}
+
 }
 /* USER CODE END 4 */
 
