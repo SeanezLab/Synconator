@@ -26,6 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "circular_reading_buffer.h"
+#include "stim_command_manager.h"
 #include <stdint.h>
 /* USER CODE END Includes */
 
@@ -52,8 +53,7 @@ int idx = 0;
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint8_t rxChar;
-volatile int mailFlag = 0;
+stimCommandQueue stim_queue;
 rdg_buf_struct* dma_reader;
 uint8_t rx_dma_buffer[RX_DMA_SIZE];
 /* USER CODE END PV */
@@ -119,6 +119,9 @@ int main(void)
   // Try receiver timeout interrupt on huart2
   __HAL_UART_ENABLE_IT(&huart2, UART_IT_RTO);
 
+  // Init our command structures
+  stim_command_init(&stim_queue);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -127,103 +130,20 @@ int main(void)
   {
 	  if (got_msg == true)
 	  {
+		  float period_test[4] = {10.0f};
+		  uint16_t amp_test[4] = {3};
+		  uint16_t cmd_size = 4;
+
+		  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
+		  uint16_t popped_amp;
+		  float popped_period;
+		  popCommand(&stim_queue, &popped_amp, &popped_period);
+
 		  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
-		  HAL_UART_Transmit(&huart2, dma_reader->buffer, (size_t)msg_size, 1000);
+		  huart2_try_send(dma_reader->buffer, msg_size);
 		  flush_buffer(dma_reader);
 		  got_msg = false;
 	  }
-
-
-	  // initial testing with Rod
-//	  HAL_Delay(19);
-//	  HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-//	  HAL_Delay(1);
-//	  HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-//
-//	  if (msg_rdy == 1) //msg ready will be set to 1 in your interrupt.
-	  {
-		  //Handle the message logic. You already have this.
-	  }
-
-//	  char msg[] = "hello world. ";
-//	  HAL_UART_Transmit(&huart2, msg, sizeof(msg), 1000);
-
-
-
-
-	  // communication testing on my own with one character
-//	  char receivedChar;
-//
-//	  char waitingMsg[] = "Waiting for character...\r\n";
-//	  HAL_UART_Transmit(&huart2, (uint8_t*)waitingMsg, sizeof(waitingMsg), 1000);
-//
-//	  HAL_UART_Receive(&huart2, (uint8_t*)&receivedChar, 1, HAL_MAX_DELAY);
-//
-//	  char gotMsg[] = "Got: ";
-//	  HAL_UART_Transmit(&huart2, (uint8_t*)gotMsg, sizeof(gotMsg), 1000);
-//	  HAL_UART_Transmit(&huart2, (uint8_t*)&receivedChar, 1, 1000);
-//
-//	  char newline[] = "\r\n";
-//	  HAL_UART_Transmit(&huart2, (uint8_t*)newline, sizeof(newline), 1000);
-
-
-
-	  // communication testing on my own with strings
-//	  char receivedChar =" ";
-//
-//	  char waitingMsg[] = "Waiting for command...\r\n";
-//	  HAL_UART_Transmit(&huart2, (uint8_t*)waitingMsg, sizeof(waitingMsg), 1000);
-//
-//	  uint16_t idx = 0;
-//	  int done = 0;
-//
-//	  while(done == 0)
-//	  {
-//		  HAL_UART_Receive(&huart2, (uint8_t*)&receivedChar, 1, HAL_MAX_DELAY);
-//		  if (receivedChar == '\r')
-//		  {
-//			  buffer[idx] = '\0';
-//			  done = 1;
-//		  }
-//		  else
-//		  {
-//			  buffer[idx] = receivedChar;
-//			  idx++;
-//			  if (idx == sizeof(buffer))
-//			  {
-//				  break;
-//			  }
-//		  }
-//
-//	  }
-//
-//	 char gotMsg[] = "Got: ";
-//	 HAL_UART_Transmit(&huart2, (uint8_t*)gotMsg, sizeof(gotMsg), 1000);
-//	 HAL_UART_Transmit(&huart2, (uint8_t*)buffer, (uint16_t)idx, 1000);
-//	 HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n", 2, 1000);
-
-
-
-
-
-//	  // Communication testing with clock and interrupt on my own
-//	  if (mailFlag == 1)
-//	  {
-//		  char msg = rxChar;
-//		  buffer[idx] = rxChar;
-//		  idx++;
-//		  if (msg == '\r')
-//		  {
-//			  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, (size_t)idx, 1000);
-//			  idx = 0;
-//
-//		  }
-//
-//		  mailFlag = 0;
-//	  }
-//
-//	  HAL_GPIO_TogglePin(debug_pin_GPIO_Port, debug_pin_Pin);
-//	  HAL_Delay(19);
 
 
     /* USER CODE END WHILE */

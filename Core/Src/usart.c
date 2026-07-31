@@ -21,6 +21,7 @@
 #include "usart.h"
 
 /* USER CODE BEGIN 0 */
+volatile uint8_t  huart2_tx_complete = 1;
 volatile bool got_msg = false;
 volatile uint16_t msg_size = 0;
 
@@ -158,6 +159,34 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 }
 
 /* USER CODE BEGIN 1 */
+
+void huart2_try_send(uint8_t* msg, uint16_t msg_size)
+{
+	if (huart2_tx_complete == 1)
+	{
+		huart2_tx_complete = 0;
+		HAL_GPIO_WritePin(debug_pin_GPIO_Port, debug_pin_Pin, GPIO_PIN_SET);
+		HAL_StatusTypeDef st = HAL_UART_Transmit_DMA(&huart2, msg, msg_size);
+
+		if (st != HAL_OK)
+		{
+			huart2_tx_complete = 1;
+		}
+	}
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart == &huart2)
+  {
+	  huart2_tx_complete = 1;
+	  HAL_GPIO_WritePin(debug_pin_GPIO_Port, debug_pin_Pin, GPIO_PIN_RESET);
+  }
+
+}
+
+
+
 void huart2_RTO_handler(void)
 {
 //	if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_RTOF) &&
