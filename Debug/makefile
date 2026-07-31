@@ -60,8 +60,8 @@ all: main-build
 main-build: Synconator.elf secondary-outputs
 
 # Tool invocations
-Synconator.elf Synconator.map: $(OBJS) $(USER_OBJS) C:\Users\natal\Documents\Synconator\STM32F303K8TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Synconator.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\natal\Documents\Synconator\STM32F303K8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Synconator.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Synconator.elf Synconator.map: $(OBJS) $(USER_OBJS) C:\Users\k.rodolfo\STM32CubeIDE\workspace_1.18.1\Synconator\STM32F303K8TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Synconator.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\k.rodolfo\STM32CubeIDE\workspace_1.18.1\Synconator\STM32F303K8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Synconator.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

@@ -104,7 +104,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   // starting timers
   HAL_TIM_Base_Start_IT(&htim2);
-  HAL_UART_Receive_IT(&huart2, &rxChar, 1);
+//  HAL_UART_Receive_IT(&huart2, &rxChar, 1);
 
   // enabling receiver timeout
   huart2.Instance->RTOR = 1000;  // timeout value
@@ -278,10 +278,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-
-}
+//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+//{
+//
+//}
 /* USER CODE END 4 */
 
 /**
