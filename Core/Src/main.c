@@ -101,10 +101,10 @@ int main(void)
   MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   // starting timers
   HAL_TIM_Base_Start_IT(&htim2);
-//  HAL_UART_Receive_IT(&huart2, &rxChar, 1);
 
   // enabling receiver timeout
   huart2.Instance->RTOR = 1000;  // timeout value
@@ -128,21 +128,10 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if (got_msg == true)
+
+	  if (com_loop_flag == 1)
 	  {
-		  float period_test[4] = {10.0f};
-		  uint16_t amp_test[4] = {3};
-		  uint16_t cmd_size = 4;
-
-		  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
-		  uint16_t popped_amp;
-		  float popped_period;
-		  popCommand(&stim_queue, &popped_amp, &popped_period);
-
-		  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
-		  huart2_try_send(dma_reader->buffer, msg_size);
-		  flush_buffer(dma_reader);
-		  got_msg = false;
+		  run_com_loop();
 	  }
 
 
@@ -190,18 +179,29 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+
+void run_com_loop(void)
 {
-	if (htim->Instance == TIM2)
+	if (got_msg == true)
 	{
-		;//HAL_GPIO_TogglePin(debug_pin_GPIO_Port, debug_pin_Pin);
+	  float period_test[4] = {10.0f};
+	  uint16_t amp_test[4] = {3};
+	  uint16_t cmd_size = 4;
+
+	  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
+	  uint16_t popped_amp;
+	  float popped_period;
+	  popCommand(&stim_queue, &popped_amp, &popped_period);
+
+	  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
+	  huart2_try_send(dma_reader->buffer, msg_size);
+	  flush_buffer(dma_reader);
+	  got_msg = false;
 	}
+	com_loop_flag = 0;
 }
 
-//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-//{
-//
-//}
+
 /* USER CODE END 4 */
 
 /**
