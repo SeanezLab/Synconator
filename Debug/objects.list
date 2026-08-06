@@ -1,4 +1,5 @@
 "./Core/Src/circular_reading_buffer.o"
+"./Core/Src/crc.o"
 "./Core/Src/data_tx_arrays.o"
 "./Core/Src/dma.o"
 "./Core/Src/gpio.o"
@@ -9,6 +10,7 @@
 "./Core/Src/syscalls.o"
 "./Core/Src/sysmem.o"
 "./Core/Src/system_stm32f3xx.o"
+"./Core/Src/test_signals.o"
 "./Core/Src/tim.o"
 "./Core/Src/usart.o"
 "./Core/Startup/startup_stm32f303k8tx.o"
