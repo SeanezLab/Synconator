@@ -18,6 +18,8 @@ void stim_command_init(stimCommandQueue* stim_queue)
 	stim_queue->totalTime = 0;
 	stim_queue->remainingSpace = MAX_CMD_LENGTH;
 	stim_queue->tail = 0;
+	stim_queue->busy_flag = 0; // Initialize not busy...
+	stim_queue->stop_flag = 0; // but with the stop command up
 }
 
 void pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, float* period, uint16_t cmd_size)

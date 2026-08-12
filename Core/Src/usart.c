@@ -189,11 +189,10 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 
 void huart2_RTO_handler(void)
 {
-//	if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_RTOF) &&
-//				__HAL_UART_GET_IT_SOURCE(&huart2, UART_IT_RTO))
-//		{
+	if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_IDLE))
+		{
 			// Clear the timeout flag
-			__HAL_UART_CLEAR_FLAG(&huart2, UART_FLAG_RTOF);
+			__HAL_UART_CLEAR_FLAG(&huart2, UART_FLAG_IDLE);
 
 			// Get the count of the bytes
 			static uint16_t rem_p = RX_DMA_SIZE;
@@ -216,6 +215,6 @@ void huart2_RTO_handler(void)
 			msg_size = received;
 			got_msg = 1;
 
-//		}
+		}
 }
 /* USER CODE END 1 */

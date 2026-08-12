@@ -25,6 +25,8 @@ typedef struct{
 	float totalTime;
 	uint16_t remainingSpace;
 	uint16_t tail;
+	uint8_t busy_flag;
+	uint8_t stop_flag;
 }stimCommandQueue;
 
 void stim_command_init(stimCommandQueue* stim_queue);

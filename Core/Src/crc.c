@@ -11,6 +11,7 @@
 #include "crc.h"
 #include "circular_reading_buffer.h"
 #include "data_tx_arrays.h"
+#include "structs.h"
 
 // Fill in Below for each new protocol ///////////////////////////////////////////////////////////////////////
 char *payload_entries[] = {"status", "queue_length","queue_time","debug","frame"};
@@ -223,6 +224,15 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 		float condition;
 		memcpy(&condition, &(rdg_struct->buffer[payload_start]), sizeof(condition));
 		// In future this will use a callback
+		if (condition == 0)
+		// Mode packet
+		{
+			float incoming_mode;
+			memcpy(&incoming_mode, &(rdg_struct->buffer[payload_start+sizeof(float)]), sizeof(float));
+//			pushCommand(&stim_queue, amp, period, cmd_size);
+
+			memcpy(queue_len, &incoming_mode, (size_t)sizeof(incoming_mode));
+		}
 
 
 	}

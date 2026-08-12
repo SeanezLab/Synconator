@@ -183,26 +183,26 @@ void SystemClock_Config(void)
 
 void run_com_loop(void)
 {
+//	Send our current state
 	increment_frame_counter();
 	memcpy(frame, &frame_counter, (size_t)sizeof(frame_counter));
-
 	compile_data_sources(5,
 			  status, queue_len, queue_time, debug, frame);
-	// Send data
 	crc_uart_send_data(compiled_payload, &huart2);
-//	if (got_msg == true)
-//	{
+
+//	Check our inbox for any commands
+	if (got_msg == true)
+	{
 //	  float period_test[4] = {10.0f};
 //	  uint16_t amp_test[4] = {3};
 //	  uint16_t cmd_size = 4;
-//
 //	  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
-//
-//	  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
-//	  huart2_try_send(dma_reader->buffer, msg_size);
-//	  flush_buffer(dma_reader);
-//	  got_msg = false;
-//	}
+
+	  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
+	  crc_uart_rcv_data(dma_reader, msg_size);
+	  flush_buffer(dma_reader);
+	  got_msg = false;
+	}
 	com_loop_flag = 0;
 }
 
