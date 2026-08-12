@@ -47,8 +47,8 @@ void popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in, uint32_t* time_i
 	memmove(stim_queue->ampArray, &(stim_queue->ampArray[1]), sizeof(uint16_t)*(MAX_CMD_LENGTH-1));
 	memmove(stim_queue->periodArray, &(stim_queue->periodArray[1]), sizeof(uint32_t)*(MAX_CMD_LENGTH-1));
 	// Set the last index to 0
-	stim_queue->ampArray[MAX_CMD_LENGTH] = 0;
-	stim_queue->periodArray[MAX_CMD_LENGTH] = 0;
+	stim_queue->ampArray[MAX_CMD_LENGTH-1] = 0;
+	stim_queue->periodArray[MAX_CMD_LENGTH-1] = 0;
 	// Update the location of the tail
 	stim_queue->tail -= 1;
 	stim_queue->remainingSpace = MAX_CMD_LENGTH - stim_queue->tail;

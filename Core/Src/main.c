@@ -109,7 +109,7 @@ int main(void)
   // starting timers
 
   HAL_TIM_Base_Start_IT(&htim6); // Communications loop (100hz)
-  HAL_TIM_Base_Start_IT(&htim7); // Stimulation loop (500hz)
+  HAL_TIM_Base_Start_IT(&htim7); // Stimulation loop (2000hz)
 
 
 
@@ -203,9 +203,9 @@ void run_com_loop(void)
 //	Check our inbox for any commands
 	if (got_msg == true)
 	{
-	  uint32_t period_test[4] = {10.0f, 10.0f, 10.0f, 10.0f};
-	  uint16_t amp_test[4] = {3, 3, 3, 3};
-	  uint16_t cmd_size = 4;
+	  uint32_t period_test[3] = {10000, 20000, 10000};
+	  uint16_t amp_test[3] = {3, 3, 3};
+	  uint16_t cmd_size = 3;
 	  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
 
 	  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
@@ -219,13 +219,13 @@ void run_com_loop(void)
 void run_stim_loop(void)
 {
 	// Check if the stim command queue is still busy
-	if (stim_queue.busy_flag == 0)
+	if (stim_queue.busy_flag == 0 && stim_queue.tail != 0)
 	{
-		uint16_t popped_amp = 0;
-		uint32_t popped_period = 4500;
-		uint32_t pulse_width = 1; //10 us
-//		popCommand(&stim_queue, &popped_amp, &popped_period);
-		//send a stimulation pulse, then schedule a cooldown
+		static uint16_t popped_amp = 0;
+		static uint32_t popped_period = 0;
+		static uint32_t pulse_width = 1; //10 us
+		popCommand(&stim_queue, &popped_amp, &popped_period);
+		//send a stimulation pulse (Set reload to 4 when feeling brave)
 		stim_queue.busy_flag = 1;
 		sendPulse(&stim_queue, pulse_width, popped_period);
 
