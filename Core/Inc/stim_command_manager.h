@@ -21,7 +21,7 @@ extern "C" {
 
 typedef struct{
 	uint16_t ampArray[MAX_CMD_LENGTH];
-	float periodArray[MAX_CMD_LENGTH];
+	uint32_t periodArray[MAX_CMD_LENGTH];
 	float totalTime;
 	uint16_t remainingSpace;
 	uint16_t tail;
@@ -30,8 +30,13 @@ typedef struct{
 }stimCommandQueue;
 
 void stim_command_init(stimCommandQueue* stim_queue);
-void pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, float* period, uint16_t cmd_size);
-void popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in, float* time_in);
+void pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
+void popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in, uint32_t* time_in);
+void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period);
+void schedulePulsePeriod(uint32_t time_us);
+void completePulsePeriod(stimCommandQueue* stim_queue);
+void schedulePulseWidth(uint32_t time_us);
+void completePulseWidth();
 
 
 

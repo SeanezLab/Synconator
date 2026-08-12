@@ -61,8 +61,8 @@ void run_stim_loop(void);
 /* Private defines -----------------------------------------------------------*/
 #define MCO_Pin GPIO_PIN_0
 #define MCO_GPIO_Port GPIOF
-#define debug_pin_Pin GPIO_PIN_1
-#define debug_pin_GPIO_Port GPIOF
+#define Trigger_Pin GPIO_PIN_1
+#define Trigger_GPIO_Port GPIOF
 #define VCP_TX_Pin GPIO_PIN_2
 #define VCP_TX_GPIO_Port GPIOA
 #define SWDIO_Pin GPIO_PIN_13

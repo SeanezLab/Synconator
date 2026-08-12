@@ -165,7 +165,6 @@ void huart2_try_send(uint8_t* msg, uint16_t msg_size)
 	if (huart2_tx_complete == 1)
 	{
 		huart2_tx_complete = 0;
-		HAL_GPIO_WritePin(debug_pin_GPIO_Port, debug_pin_Pin, GPIO_PIN_SET);
 		HAL_StatusTypeDef st = HAL_UART_Transmit_DMA(&huart2, msg, msg_size);
 
 		if (st != HAL_OK)
@@ -180,7 +179,6 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
   if (huart == &huart2)
   {
 	  huart2_tx_complete = 1;
-	  HAL_GPIO_WritePin(debug_pin_GPIO_Port, debug_pin_Pin, GPIO_PIN_RESET);
   }
 
 }

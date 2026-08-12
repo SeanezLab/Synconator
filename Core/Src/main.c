@@ -102,10 +102,16 @@ int main(void)
   MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
-  MX_TIM3_Init();
+  MX_TIM6_Init();
+  MX_TIM7_Init();
+  MX_TIM16_Init();
   /* USER CODE BEGIN 2 */
   // starting timers
-  HAL_TIM_Base_Start_IT(&htim2);
+
+  HAL_TIM_Base_Start_IT(&htim6); // Communications loop (100hz)
+  HAL_TIM_Base_Start_IT(&htim7); // Stimulation loop (500hz)
+
+
 
   // enabling receiver timeout
   huart2.Instance->RTOR = 1000;  // timeout value
@@ -133,6 +139,10 @@ int main(void)
 	  if (com_loop_flag == 1)
 	  {
 		  run_com_loop();
+	  }
+	  if (stim_loop_flag == 1)
+	  {
+		  run_stim_loop();
 	  }
 
 
@@ -193,10 +203,10 @@ void run_com_loop(void)
 //	Check our inbox for any commands
 	if (got_msg == true)
 	{
-//	  float period_test[4] = {10.0f};
-//	  uint16_t amp_test[4] = {3};
-//	  uint16_t cmd_size = 4;
-//	  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
+	  uint32_t period_test[4] = {10.0f, 10.0f, 10.0f, 10.0f};
+	  uint16_t amp_test[4] = {3, 3, 3, 3};
+	  uint16_t cmd_size = 4;
+	  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
 
 	  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
 	  crc_uart_rcv_data(dma_reader, msg_size);
@@ -208,10 +218,19 @@ void run_com_loop(void)
 
 void run_stim_loop(void)
 {
-	uint16_t popped_amp = 0;
-	float popped_period = 0;
-	popCommand(&stim_queue, &popped_amp, &popped_period);
+	// Check if the stim command queue is still busy
+	if (stim_queue.busy_flag == 0)
+	{
+		uint16_t popped_amp = 0;
+		uint32_t popped_period = 4500;
+		uint32_t pulse_width = 1; //10 us
+//		popCommand(&stim_queue, &popped_amp, &popped_period);
+		//send a stimulation pulse, then schedule a cooldown
+		stim_queue.busy_flag = 1;
+		sendPulse(&stim_queue, pulse_width, popped_period);
 
+	}
+	stim_loop_flag = 0;
 }
 
 

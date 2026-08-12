@@ -34,15 +34,22 @@ extern "C" {
 
 extern TIM_HandleTypeDef htim2;
 
-extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim6;
+
+extern TIM_HandleTypeDef htim7;
+
+extern TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN Private defines */
 extern uint8_t com_loop_flag;
+extern uint8_t stim_loop_flag;
 
 /* USER CODE END Private defines */
 
 void MX_TIM2_Init(void);
-void MX_TIM3_Init(void);
+void MX_TIM6_Init(void);
+void MX_TIM7_Init(void);
+void MX_TIM16_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 
