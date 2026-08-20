@@ -203,7 +203,7 @@ void run_com_loop(void)
 //	Check our inbox for any commands
 	if (got_msg == true)
 	{
-	  uint32_t period_test[3] = {10000, 20000, 10000};
+	  uint32_t period_test[3] = {1000, 2000, 1000}; //pretty sure microseconds
 	  uint16_t amp_test[3] = {3, 3, 3};
 	  uint16_t cmd_size = 3;
 	  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
@@ -224,7 +224,9 @@ void run_stim_loop(void)
 		static uint16_t popped_amp = 0;
 		static uint32_t popped_period = 0;
 		static uint32_t pulse_width = 1; //10 us
+		HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
 		popCommand(&stim_queue, &popped_amp, &popped_period);
+		HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 		//send a stimulation pulse (Set reload to 4 when feeling brave)
 		stim_queue.busy_flag = 1;
 		sendPulse(&stim_queue, pulse_width, popped_period);
