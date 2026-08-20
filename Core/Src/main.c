@@ -207,7 +207,6 @@ void run_com_loop(void)
 	  uint16_t amp_test[3] = {3, 3, 3};
 	  uint16_t cmd_size = 3;
 	  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
-
 	  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
 	  crc_uart_rcv_data(dma_reader, msg_size);
 	  flush_buffer(dma_reader);
@@ -219,17 +218,19 @@ void run_com_loop(void)
 void run_stim_loop(void)
 {
 	// Check if the stim command queue is still busy
-	if (stim_queue.busy_flag == 0 && stim_queue.tail != 0)
+	if (stim_queue.busy_flag == 0 && stim_queue.tail != stim_queue.head)
 	{
 		static uint16_t popped_amp = 0;
 		static uint32_t popped_period = 0;
 		static uint32_t pulse_width = 1; //10 us
-		HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
-		popCommand(&stim_queue, &popped_amp, &popped_period);
-		HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
+		uint8_t cmd_success;
+		cmd_success = popCommand(&stim_queue, &popped_amp, &popped_period);
 		//send a stimulation pulse (Set reload to 4 when feeling brave)
-		stim_queue.busy_flag = 1;
-		sendPulse(&stim_queue, pulse_width, popped_period);
+		if (cmd_success == 1)
+		{
+			stim_queue.busy_flag = 1;
+			sendPulse(&stim_queue, pulse_width, popped_period);
+		}
 
 	}
 	stim_loop_flag = 0;
