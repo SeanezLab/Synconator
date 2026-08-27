@@ -17,7 +17,7 @@ extern "C" {
 
 // I want to allocate a max of 6kb of memory to the commands. At a stim rate of 200hz, 2byte encoding of amp, and float encoding of
 // time, one command is 6 bytes. This allows me space for 1000 commands, or 5 seconds of preloaded stimulation. That should be plenty.
-#define MAX_CMD_LENGTH 15
+#define MAX_CMD_LENGTH 1000
 
 typedef struct{
 	uint16_t ampArray[MAX_CMD_LENGTH];

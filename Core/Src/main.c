@@ -196,6 +196,11 @@ void run_com_loop(void)
 //	Send our current state
 	increment_frame_counter();
 	memcpy(frame, &frame_counter, (size_t)sizeof(frame_counter));
+	// Count remaining commands
+	float queued_cmds = (float)(MAX_CMD_LENGTH - stim_queue.remainingSpace);
+	memcpy(queue_len, &queued_cmds, sizeof(queued_cmds));
+
+
 	compile_data_sources(5,
 			  status, queue_len, queue_time, debug, frame);
 	crc_uart_send_data(compiled_payload, &huart2);
@@ -203,10 +208,6 @@ void run_com_loop(void)
 //	Check our inbox for any commands
 	if (got_msg == true)
 	{
-	  uint32_t period_test[3] = {1000, 2000, 1000}; //pretty sure microseconds
-	  uint16_t amp_test[3] = {3, 3, 3};
-	  uint16_t cmd_size = 3;
-	  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
 	  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
 	  crc_uart_rcv_data(dma_reader, msg_size);
 	  flush_buffer(dma_reader);
@@ -218,12 +219,13 @@ void run_com_loop(void)
 void run_stim_loop(void)
 {
 	// Check if the stim command queue is still busy
+//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET); This loop take 96 us to run w/out popping.
 	if (stim_queue.busy_flag == 0 && stim_queue.tail != stim_queue.head)
 	{
 		static uint16_t popped_amp = 0;
-		static uint32_t popped_period = 0;
-		static uint32_t pulse_width = 1; //10 us
-		uint8_t cmd_success;
+		static uint32_t popped_period = 500;
+		static uint32_t pulse_width = 10; //10 us
+		uint8_t cmd_success = 1;
 		cmd_success = popCommand(&stim_queue, &popped_amp, &popped_period);
 		//send a stimulation pulse (Set reload to 4 when feeling brave)
 		if (cmd_success == 1)
@@ -234,6 +236,7 @@ void run_stim_loop(void)
 
 	}
 	stim_loop_flag = 0;
+//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 }
 
 

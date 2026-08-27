@@ -12,6 +12,7 @@
 #include <math.h>
 #include <stdlib.h>
 
+#define TIMING_OFFSET 104 //us
 
 void stim_command_init(stimCommandQueue* stim_queue)
 {
@@ -104,15 +105,15 @@ void updateRemainingSpace(stimCommandQueue* stim_queue)
 
 void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period)
 {
-	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
-	__HAL_TIM_SET_AUTORELOAD(&htim2, pulse_period);
+//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
+	__HAL_TIM_SET_AUTORELOAD(&htim2, pulse_period - TIMING_OFFSET);
 	__HAL_TIM_SET_COUNTER(&htim2, 0);
 	__HAL_TIM_SET_AUTORELOAD(&htim16, pulse_width);
 	__HAL_TIM_SET_COUNTER(&htim16, 0);
 	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
+//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 	HAL_TIM_Base_Start_IT(&htim2); // Stimulation Period (1mhz counter)
 	HAL_TIM_Base_Start_IT(&htim16); // Pulse Width Period (1mhz counter)
-	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 
 }
 
@@ -126,8 +127,10 @@ void schedulePulsePeriod(uint32_t time_us)
 
 void completePulsePeriod(stimCommandQueue* stim_queue)
 {
+//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
 	HAL_TIM_Base_Stop_IT(&htim2);
 	stim_queue->busy_flag = 0;
+//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 
 }
 
