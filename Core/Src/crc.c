@@ -251,10 +251,11 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 			memcpy(&incoming_freq, &(rdg_struct->buffer[payload_start+sizeof(float)]), sizeof(float));
 			float calc_period = 1/incoming_freq;
 			uint32_t incoming_period_us = (uint32_t)(calc_period * SEC_TO_US);
-			uint16_t incoming_amp = 1;
-			uint16_t incoming_cmd_size = 1;
+			uint32_t incoming_period[2] = {incoming_period_us, incoming_period_us};
+			uint16_t incoming_amp[2] = {1,1};
+			uint16_t incoming_cmd_size = 2;
 
-			pushCommand(&stim_queue, &incoming_amp, &incoming_period_us, incoming_cmd_size);
+			pushCommand(&stim_queue, incoming_amp, incoming_period, incoming_cmd_size);
 		}
 
 

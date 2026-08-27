@@ -113,8 +113,8 @@ void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t puls
 //	__HAL_TIM_DISABLE(&htim2);
 	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
 	__HAL_TIM_SET_AUTORELOAD(&htim2, pulse_period-1);
-//    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, pulse_width);
-//    __HAL_TIM_SET_COUNTER(&htim2, 0);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, pulse_width);
+    __HAL_TIM_SET_COUNTER(&htim2, 0);
     // Transfer preloaded values into the active registers
 //   htim2.Instance->EGR = TIM_EGR_UG;
 //
@@ -122,7 +122,7 @@ void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t puls
 //   __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
 
    // Generate one complete PWM cycle
-//   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
     HAL_TIM_OnePulse_Start(&htim2, TIM_CHANNEL_1);
     __HAL_TIM_ENABLE(&htim2);
 	stim_queue->busy_flag = 0;
@@ -145,9 +145,9 @@ void updateContinuous(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32
 void completePulse(stimCommandQueue* stim_queue)
 {
 //	HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
-//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
 	stim_queue->busy_flag = 0;
-//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 
 }
 
