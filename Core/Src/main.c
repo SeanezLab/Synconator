@@ -104,12 +104,14 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM6_Init();
   MX_TIM7_Init();
-  MX_TIM16_Init();
   /* USER CODE BEGIN 2 */
   // starting timers
 
   HAL_TIM_Base_Start_IT(&htim6); // Communications loop (100hz)
   HAL_TIM_Base_Start_IT(&htim7); // Stimulation loop (2000hz)
+  __HAL_TIM_ENABLE_IT(&htim2, TIM_IT_UPDATE); // Stimulation Period AND pulse width (PWM w/ 1mhz counter)
+//  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
 
 
 
@@ -140,11 +142,6 @@ int main(void)
 	  {
 		  run_com_loop();
 	  }
-	  if (stim_loop_flag == 1)
-	  {
-		  run_stim_loop();
-	  }
-
 
     /* USER CODE END WHILE */
 
@@ -203,10 +200,6 @@ void run_com_loop(void)
 //	Check our inbox for any commands
 	if (got_msg == true)
 	{
-	  uint32_t period_test[3] = {1000, 2000, 1000}; //pretty sure microseconds
-	  uint16_t amp_test[3] = {3, 3, 3};
-	  uint16_t cmd_size = 3;
-	  pushCommand(&stim_queue, amp_test, period_test, cmd_size);
 	  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
 	  crc_uart_rcv_data(dma_reader, msg_size);
 	  flush_buffer(dma_reader);
@@ -220,9 +213,11 @@ void run_stim_loop(void)
 	// Check if the stim command queue is still busy
 	if (stim_queue.busy_flag == 0 && stim_queue.tail != stim_queue.head)
 	{
+//		HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
 		static uint16_t popped_amp = 0;
-		static uint32_t popped_period = 0;
-		static uint32_t pulse_width = 1; //10 us
+		static uint32_t popped_period = 100; //us
+		static uint32_t pulse_width = 10; //10 us
+//		uint8_t cmd_success = 1;
 		uint8_t cmd_success;
 		cmd_success = popCommand(&stim_queue, &popped_amp, &popped_period);
 		//send a stimulation pulse (Set reload to 4 when feeling brave)
@@ -231,6 +226,7 @@ void run_stim_loop(void)
 			stim_queue.busy_flag = 1;
 			sendPulse(&stim_queue, pulse_width, popped_period);
 		}
+//		HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 
 	}
 	stim_loop_flag = 0;

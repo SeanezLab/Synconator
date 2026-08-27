@@ -13,6 +13,8 @@
 #include "data_tx_arrays.h"
 #include "structs.h"
 
+#define SEC_TO_US (1000000.0f)
+
 // Fill in Below for each new protocol ///////////////////////////////////////////////////////////////////////
 char *payload_entries[] = {"status", "queue_length","queue_time","debug","frame"};
 
@@ -229,9 +231,30 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 		{
 			float incoming_mode;
 			memcpy(&incoming_mode, &(rdg_struct->buffer[payload_start+sizeof(float)]), sizeof(float));
-//			pushCommand(&stim_queue, amp, period, cmd_size);
-
 			memcpy(queue_len, &incoming_mode, (size_t)sizeof(incoming_mode));
+		}
+		if (condition == 2)
+		// Single shot stim packet
+		{
+			float incoming_period;
+			memcpy(&incoming_period, &(rdg_struct->buffer[payload_start+sizeof(float)]), sizeof(float));
+			uint32_t incoming_period_us = (uint32_t)(incoming_period);
+			uint16_t incoming_amp = 1;
+			uint16_t incoming_cmd_size = 1;
+
+			pushCommand(&stim_queue, &incoming_amp, &incoming_period_us, incoming_cmd_size);
+		}
+		if (condition == 3)
+		// Continuous stim packet
+		{
+			float incoming_freq;
+			memcpy(&incoming_freq, &(rdg_struct->buffer[payload_start+sizeof(float)]), sizeof(float));
+			float calc_period = 1/incoming_freq;
+			uint32_t incoming_period_us = (uint32_t)(calc_period * SEC_TO_US);
+			uint16_t incoming_amp = 1;
+			uint16_t incoming_cmd_size = 1;
+
+			pushCommand(&stim_queue, &incoming_amp, &incoming_period_us, incoming_cmd_size);
 		}
 
 
