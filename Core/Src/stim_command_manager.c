@@ -24,6 +24,7 @@ void stim_command_init(stimCommandQueue* stim_queue)
 	stim_queue->busy_flag = 0; // Initialize not busy...
 	stim_queue->stop_flag = 0; // but with the stop command up
 	stim_queue->queue_lock = 0; // Locks the buffer when commands are being updated
+	stim_queue->stim_loop_active = 0;
 }
 
 uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, uint32_t* period, uint16_t cmd_size)
@@ -104,45 +105,50 @@ void updateRemainingSpace(stimCommandQueue* stim_queue)
 
 void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period)
 {
+	if (pulse_width == 0 || pulse_width > pulse_period)
+	{
+		stim_queue->busy_flag = 0;
+		return;
+	}
+//	__HAL_TIM_DISABLE(&htim2);
 	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
-	__HAL_TIM_SET_AUTORELOAD(&htim2, pulse_period);
-	__HAL_TIM_SET_COUNTER(&htim2, 0);
-	__HAL_TIM_SET_AUTORELOAD(&htim16, pulse_width);
-	__HAL_TIM_SET_COUNTER(&htim16, 0);
-	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
-	HAL_TIM_Base_Start_IT(&htim2); // Stimulation Period (1mhz counter)
-	HAL_TIM_Base_Start_IT(&htim16); // Pulse Width Period (1mhz counter)
-	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
+	__HAL_TIM_SET_AUTORELOAD(&htim2, pulse_period-1);
+//    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, pulse_width);
+//    __HAL_TIM_SET_COUNTER(&htim2, 0);
+    // Transfer preloaded values into the active registers
+//   htim2.Instance->EGR = TIM_EGR_UG;
+//
+//   // The software-generated update event sets UIF
+//   __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
 
-}
-
-void schedulePulsePeriod(uint32_t time_us)
-{
-	__HAL_TIM_SET_AUTORELOAD(&htim2, time_us);
-	__HAL_TIM_SET_COUNTER(&htim2, 0);
-//	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
-	HAL_TIM_Base_Start_IT(&htim2); // Stimulation Period (1mhz counter)
-}
-
-void completePulsePeriod(stimCommandQueue* stim_queue)
-{
-	HAL_TIM_Base_Stop_IT(&htim2);
+   // Generate one complete PWM cycle
+//   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+    HAL_TIM_OnePulse_Start(&htim2, TIM_CHANNEL_1);
+    __HAL_TIM_ENABLE(&htim2);
 	stim_queue->busy_flag = 0;
-
+   HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 }
 
-void schedulePulseWidth(uint32_t time_us)
+void updateContinuous(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period)
 {
-	__HAL_TIM_SET_AUTORELOAD(&htim16, time_us);
-	__HAL_TIM_SET_COUNTER(&htim16, 0);
-	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
-	HAL_TIM_Base_Start_IT(&htim16); // Pulse Width Period (1mhz counter)
+	if (pulse_width == 0 || pulse_width > pulse_period)
+	{
+		stim_queue->busy_flag = 0;
+		return;
+	}
+	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
+	__HAL_TIM_SET_AUTORELOAD(&htim2, pulse_period-1);
+	stim_queue->busy_flag = 0;
+   HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 }
 
-void completePulseWidth()
+void completePulse(stimCommandQueue* stim_queue)
 {
-	HAL_TIM_Base_Stop_IT(&htim16);
-	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+//	HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
+	stim_queue->busy_flag = 0;
+//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 
 }
+
 
