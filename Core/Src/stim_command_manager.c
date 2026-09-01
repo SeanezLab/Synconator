@@ -8,11 +8,12 @@
 #include "stim_command_manager.h"
 #include "data_tx_arrays.h"
 #include "tim.h"
+#include "structs.h"
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
 
-#define TIMING_OFFSET 104 //us
+#define TIMING_OFFSET 7 //us
 
 void stim_command_init(stimCommandQueue* stim_queue)
 {
@@ -103,17 +104,19 @@ void updateRemainingSpace(stimCommandQueue* stim_queue)
 	}
 }
 
-void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period)
+void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period, uint16_t pulse_amp)
 {
 //	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
 	__HAL_TIM_SET_AUTORELOAD(&htim2, pulse_period - TIMING_OFFSET);
 	__HAL_TIM_SET_COUNTER(&htim2, 0);
-	__HAL_TIM_SET_AUTORELOAD(&htim16, pulse_width);
-	__HAL_TIM_SET_COUNTER(&htim16, 0);
+	__HAL_TIM_SET_AUTORELOAD(&htim15, pulse_width);
+	__HAL_TIM_SET_COUNTER(&htim15, 0);
+	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
+//	GP8403_SetMillivolts(&dac, GP8403_CHANNEL_0, pulse_amp); //amplitude is given in mV.
 	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
-//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 	HAL_TIM_Base_Start_IT(&htim2); // Stimulation Period (1mhz counter)
-	HAL_TIM_Base_Start_IT(&htim16); // Pulse Width Period (1mhz counter)
+	HAL_TIM_Base_Start_IT(&htim15); // Pulse Width Period (1mhz counter)
 
 }
 
@@ -136,16 +139,17 @@ void completePulsePeriod(stimCommandQueue* stim_queue)
 
 void schedulePulseWidth(uint32_t time_us)
 {
-	__HAL_TIM_SET_AUTORELOAD(&htim16, time_us);
-	__HAL_TIM_SET_COUNTER(&htim16, 0);
+	__HAL_TIM_SET_AUTORELOAD(&htim15, time_us);
+	__HAL_TIM_SET_COUNTER(&htim15, 0);
 	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
-	HAL_TIM_Base_Start_IT(&htim16); // Pulse Width Period (1mhz counter)
+	HAL_TIM_Base_Start_IT(&htim15); // Pulse Width Period (1mhz counter)
 }
 
 void completePulseWidth()
 {
-	HAL_TIM_Base_Stop_IT(&htim16);
+	HAL_TIM_Base_Stop_IT(&htim15);
 	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
+	GP8403_SetMillivolts(&dac, GP8403_CHANNEL_0, 0); //amplitude is given in mV.
 
 }
 

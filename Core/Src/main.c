@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "dma.h"
+#include "i2c.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -28,7 +29,9 @@
 #include "structs.h"
 #include "test_signals.h"
 #include "crc.h"
+#include "gp8403.h"
 #include <stdint.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,12 +41,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
 // Buffer to hold rx data
 char buffer[50] = {0};
 uint8_t msg_rdy = 0;
 int done = 0;
 int idx = 0;
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -56,7 +59,8 @@ int idx = 0;
 /* USER CODE BEGIN PV */
 stimCommandQueue stim_queue;
 rdg_buf_struct* dma_reader;
-uint8_t rx_dma_buffer[RX_DMA_SIZE];
+GP8403 dac;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -88,6 +92,7 @@ int main(void)
 
   /* USER CODE BEGIN Init */
   dma_reader = rdg_buf_init(RX_DMA_SIZE);
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -101,33 +106,37 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_USART2_UART_Init();
-  MX_TIM2_Init();
   MX_TIM6_Init();
   MX_TIM7_Init();
-  MX_TIM16_Init();
+  MX_TIM2_Init();
+  MX_TIM15_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   // starting timers
 
-  HAL_TIM_Base_Start_IT(&htim6); // Communications loop (100hz)
-  HAL_TIM_Base_Start_IT(&htim7); // Stimulation loop (2000hz)
+     HAL_TIM_Base_Start_IT(&htim6); // Communications loop (100hz)
+     HAL_TIM_Base_Start_IT(&htim7); // Stimulation loop (66667hz)
 
 
 
-  // enabling receiver timeout
-  huart2.Instance->RTOR = 1000;  // timeout value
-  SET_BIT(huart2.Instance->CR2, USART_CR2_RTOEN);
-  SET_BIT(huart2.Instance->CR1, USART_CR1_RTOIE);
+     // enabling receive to idle
+     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_dma_buffer, RX_DMA_SIZE);
+     // Turn off DMA half-transfer + transfer-complete interupts
+     __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
+     __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_TC);
 
-  HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_dma_buffer, RX_DMA_SIZE);
-  // Turn off DMA half-transfer + transfer-complete interupts
-  __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
-  __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_TC);
+     // Init our command structures
+     stim_command_init(&stim_queue);
 
-  // Try receiver timeout interrupt on huart2
-  __HAL_UART_ENABLE_IT(&huart2, UART_IT_RTO);
+     // Init the DAC
+//     if (GP8403_Init(&dac, &hi2c1, GP8403_DEFAULT_I2C_ADDRESS, GP8403_RANGE_10V) != HAL_OK)
+//     {
+//         Error_Handler();
+//     }
 
-  // Init our command structures
-  stim_command_init(&stim_queue);
+     // Set channel 0 to 0.0 V
+//     GP8403_SetMillivolts(&dac, GP8403_CHANNEL_0, 0);
+
 
   /* USER CODE END 2 */
 
@@ -135,7 +144,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
 	  if (com_loop_flag == 1)
 	  {
 		  run_com_loop();
@@ -144,8 +152,6 @@ int main(void)
 	  {
 		  run_stim_loop();
 	  }
-
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -162,13 +168,26 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+  /** Configure the main internal regulator output voltage
+  */
+  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 1;
+  RCC_OscInitStruct.PLL.PLLN = 10;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -178,12 +197,12 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -219,7 +238,7 @@ void run_com_loop(void)
 void run_stim_loop(void)
 {
 	// Check if the stim command queue is still busy
-//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET); This loop take 96 us to run w/out popping.
+	//HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET); //This loop take 7.1 us to run w/out popping.
 	if (stim_queue.busy_flag == 0 && stim_queue.tail != stim_queue.head)
 	{
 		static uint16_t popped_amp = 0;
@@ -231,12 +250,12 @@ void run_stim_loop(void)
 		if (cmd_success == 1)
 		{
 			stim_queue.busy_flag = 1;
-			sendPulse(&stim_queue, pulse_width, popped_period);
+			sendPulse(&stim_queue, pulse_width, popped_period, popped_amp);
 		}
 
 	}
 	stim_loop_flag = 0;
-//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
+	//HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 }
 
 

@@ -35,7 +35,7 @@ void stim_command_init(stimCommandQueue* stim_queue);
 uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
 uint8_t popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in, uint32_t* time_in);
 void updateRemainingSpace(stimCommandQueue* stim_queue);
-void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period);
+void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period, uint16_t pulse_amp);
 void schedulePulsePeriod(uint32_t time_us);
 void completePulsePeriod(stimCommandQueue* stim_queue);
 void schedulePulseWidth(uint32_t time_us);

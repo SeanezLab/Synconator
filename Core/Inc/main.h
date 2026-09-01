@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32f3xx_hal.h"
+#include "stm32l4xx_hal.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -55,28 +55,40 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 void run_com_loop(void);
 void run_stim_loop(void);
-
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define B1_Pin GPIO_PIN_13
+#define B1_GPIO_Port GPIOC
 #define MCO_Pin GPIO_PIN_0
-#define MCO_GPIO_Port GPIOF
-#define Trigger_Pin GPIO_PIN_1
-#define Trigger_GPIO_Port GPIOF
-#define VCP_TX_Pin GPIO_PIN_2
-#define VCP_TX_GPIO_Port GPIOA
-#define SWDIO_Pin GPIO_PIN_13
-#define SWDIO_GPIO_Port GPIOA
-#define SWCLK_Pin GPIO_PIN_14
-#define SWCLK_GPIO_Port GPIOA
-#define VCP_RX_Pin GPIO_PIN_15
-#define VCP_RX_GPIO_Port GPIOA
-#define LED_Pin GPIO_PIN_3
-#define LED_GPIO_Port GPIOB
-#define Timing_Pin GPIO_PIN_4
-#define Timing_GPIO_Port GPIOB
+#define MCO_GPIO_Port GPIOH
+#define Trigger_Pin GPIO_PIN_0
+#define Trigger_GPIO_Port GPIOC
+#define Timing_Pin GPIO_PIN_1
+#define Timing_GPIO_Port GPIOC
+#define USART_TX_Pin GPIO_PIN_2
+#define USART_TX_GPIO_Port GPIOA
+#define USART_RX_Pin GPIO_PIN_3
+#define USART_RX_GPIO_Port GPIOA
+#define SMPS_EN_Pin GPIO_PIN_4
+#define SMPS_EN_GPIO_Port GPIOA
+#define SMPS_V1_Pin GPIO_PIN_5
+#define SMPS_V1_GPIO_Port GPIOA
+#define SMPS_PG_Pin GPIO_PIN_6
+#define SMPS_PG_GPIO_Port GPIOA
+#define SMPS_SW_Pin GPIO_PIN_7
+#define SMPS_SW_GPIO_Port GPIOA
+#define LD4_Pin GPIO_PIN_13
+#define LD4_GPIO_Port GPIOB
+#define TMS_Pin GPIO_PIN_13
+#define TMS_GPIO_Port GPIOA
+#define TCK_Pin GPIO_PIN_14
+#define TCK_GPIO_Port GPIOA
+#define SWO_Pin GPIO_PIN_3
+#define SWO_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+
 
 /* USER CODE END Private defines */
 

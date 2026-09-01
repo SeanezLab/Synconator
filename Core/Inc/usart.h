@@ -35,11 +35,13 @@ extern "C" {
 extern UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN Private defines */
+#define RX_DMA_SIZE 256
+extern uint8_t rx_dma_buffer[RX_DMA_SIZE];
 extern volatile uint8_t huart2_tx_complete;
 extern volatile uint8_t tx_dma_packet;
 extern volatile bool got_msg;
 extern volatile uint16_t msg_size;
-#define RX_DMA_SIZE 256
+
 /* USER CODE END Private defines */
 
 void MX_USART2_UART_Init(void);

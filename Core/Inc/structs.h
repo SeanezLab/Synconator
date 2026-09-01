@@ -11,6 +11,7 @@
 #include "circular_reading_buffer.h"
 #include "data_tx_arrays.h"
 #include "stim_command_manager.h"
+#include "gp8403.h"
 //#include "cmd_array.h"
 
 // Global Structs ///
@@ -19,6 +20,7 @@ extern rdg_buf_struct* dma_reader;
 
 // Stimulation Handling Structs
 extern stimCommandQueue stim_queue;
+extern GP8403 dac;
 
 
 

@@ -38,7 +38,7 @@ extern TIM_HandleTypeDef htim6;
 
 extern TIM_HandleTypeDef htim7;
 
-extern TIM_HandleTypeDef htim16;
+extern TIM_HandleTypeDef htim15;
 
 /* USER CODE BEGIN Private defines */
 extern uint8_t com_loop_flag;
@@ -49,7 +49,7 @@ extern uint8_t stim_loop_flag;
 void MX_TIM2_Init(void);
 void MX_TIM6_Init(void);
 void MX_TIM7_Init(void);
-void MX_TIM16_Init(void);
+void MX_TIM15_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 
