@@ -9,6 +9,7 @@
 #include "data_tx_arrays.h"
 #include "tim.h"
 #include "structs.h"
+#include "dac.h"
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
@@ -112,7 +113,7 @@ void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t puls
 	__HAL_TIM_SET_AUTORELOAD(&htim15, pulse_width);
 	__HAL_TIM_SET_COUNTER(&htim15, 0);
 	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
-//	GP8403_SetMillivolts(&dac, GP8403_CHANNEL_0, pulse_amp); //amplitude is given in mV.
+	HAL_DAC_SetValue(&hdac1,DAC_CHANNEL_1,DAC_ALIGN_12B_R,2048);
 	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
 	HAL_TIM_Base_Start_IT(&htim2); // Stimulation Period (1mhz counter)
@@ -149,7 +150,8 @@ void completePulseWidth()
 {
 	HAL_TIM_Base_Stop_IT(&htim15);
 	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
-	GP8403_SetMillivolts(&dac, GP8403_CHANNEL_0, 0); //amplitude is given in mV.
+	HAL_DAC_SetValue(&hdac1,DAC_CHANNEL_1,DAC_ALIGN_12B_R,0);
+	//GP8403_SetMillivolts(&dac, GP8403_CHANNEL_0, 0); //amplitude is given in mV.
 
 }
 

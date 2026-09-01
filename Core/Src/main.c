@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dac.h"
 #include "dma.h"
 #include "i2c.h"
 #include "tim.h"
@@ -111,6 +112,7 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM15_Init();
   MX_I2C1_Init();
+  MX_DAC1_Init();
   /* USER CODE BEGIN 2 */
   // starting timers
 
@@ -129,13 +131,7 @@ int main(void)
      stim_command_init(&stim_queue);
 
      // Init the DAC
-//     if (GP8403_Init(&dac, &hi2c1, GP8403_DEFAULT_I2C_ADDRESS, GP8403_RANGE_10V) != HAL_OK)
-//     {
-//         Error_Handler();
-//     }
-
-     // Set channel 0 to 0.0 V
-//     GP8403_SetMillivolts(&dac, GP8403_CHANNEL_0, 0);
+     HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
 
 
   /* USER CODE END 2 */
