@@ -23,8 +23,8 @@
 /* USER CODE BEGIN 0 */
 #include "structs.h"
 
-uint8_t com_loop_flag = 0;
-uint8_t stim_loop_flag = 0;
+volatile uint8_t com_loop_flag = 0;
+volatile uint8_t stim_loop_flag = 0;
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef htim2;

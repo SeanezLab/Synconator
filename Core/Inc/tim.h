@@ -41,8 +41,8 @@ extern TIM_HandleTypeDef htim7;
 extern TIM_HandleTypeDef htim15;
 
 /* USER CODE BEGIN Private defines */
-extern uint8_t com_loop_flag;
-extern uint8_t stim_loop_flag;
+extern volatile uint8_t com_loop_flag;
+extern volatile uint8_t stim_loop_flag;
 
 /* USER CODE END Private defines */
 

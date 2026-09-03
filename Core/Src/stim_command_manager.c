@@ -53,6 +53,7 @@ void stim_command_init(stimCommandQueue* stim_queue)
 	memset(stim_queue->periodArray, 0, sizeof(stim_queue->periodArray));
 	stim_queue->totalTime = 0;
 	stim_queue->remainingSpace = MAX_CMD_LENGTH;
+	stim_queue->count = 0;
 	stim_queue->head = 0;
 	stim_queue->tail = 0;
 	stim_queue->busy_flag = 0; // Initialize not busy...
@@ -82,14 +83,19 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, uint32_t* perio
 		stim_queue->ampArray[start_index+i] = amp[i];
 		stim_queue->periodArray[start_index+i] = period[i];
 	}
+
+	for (uint16_t i = 0; i < cmd_size; i++)
+	{
+	    uint16_t index = (stim_queue->tail + i) % MAX_CMD_LENGTH;
+	    stim_queue->ampArray[index] = amp[i];
+	    stim_queue->periodArray[index] = period[i];
+	}
+
 	// Update the tail
-	stim_queue->tail += cmd_size;
-	if (stim_queue->tail >= MAX_CMD_LENGTH)
-		{
-			stim_queue->tail = stim_queue->tail % MAX_CMD_LENGTH;
-		}
-	// Update the remaining space
-	updateRemainingSpace(stim_queue);
+	stim_queue->tail = (stim_queue->tail + cmd_size) % MAX_CMD_LENGTH;
+	// Update the count and remaining space
+	stim_queue->count += cmd_size;
+	stim_queue->remainingSpace = MAX_CMD_LENGTH - stim_queue->count;
 	// Release the lock
 	stim_queue-> queue_lock = 0;
 	// Return the success flag
@@ -109,33 +115,15 @@ uint8_t popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in, uint32_t* tim
 	*amp_in = stim_queue->ampArray[stim_queue->head];
 	*time_in = stim_queue->periodArray[stim_queue->head];
 	// Update the location of the head
-	stim_queue->head += 1;
-	if (stim_queue->head >= MAX_CMD_LENGTH)
-	{
-		stim_queue->head = stim_queue->head % MAX_CMD_LENGTH;
-	}
-
-	// Update the remainder
-	updateRemainingSpace(stim_queue);
+	stim_queue->head = (stim_queue->head + 1) % MAX_CMD_LENGTH;
+	// Update the count and remaining space
+	stim_queue->count --;
+	stim_queue->remainingSpace = MAX_CMD_LENGTH - stim_queue->count;
 	// Release the lock
 	stim_queue-> queue_lock = 0;
 	// Return the status
 	return success_flag;
 }
-
-void updateRemainingSpace(stimCommandQueue* stim_queue)
-{
-	if (stim_queue->tail < stim_queue->head)
-	{
-		stim_queue->remainingSpace = abs(stim_queue->tail - stim_queue->head);
-	}
-	else if (stim_queue->tail>=stim_queue->head)
-	{
-		uint16_t btwn_tail_head = stim_queue->tail - stim_queue->head;
-		stim_queue->remainingSpace = MAX_CMD_LENGTH - btwn_tail_head;
-	}
-}
-
 
 static uint16_t amplitudeToDacCode(uint16_t amplitude)
 {
@@ -158,10 +146,11 @@ static uint16_t buildDmaBlock(stimCommandQueue* stim_queue)
 	// Start a new timeline if the next rise time is too close or has passed
 	if (!timeline_valid || (int32_t)(next_rise_tick - earliest_rise) < 0)
 	{
+		next_rise_tick = earliest_rise;
 		timeline_valid = true;
 	}
 
-	while (pulse_count < PULSES_PER_DMA_BLOCK && stim_queue->tail != stim_queue->head)
+	while (pulse_count < PULSES_PER_DMA_BLOCK && stim_queue->count > 0)
 	{
 		uint16_t amplitude;
 		uint32_t period;
@@ -213,8 +202,8 @@ static uint16_t buildDmaBlock(stimCommandQueue* stim_queue)
 	// counter prevents another match until TIM2 wraps. The DAC dummy tranfer acks the final DAC DMA request
 	// and leave zero preloaded
 
-	dac_event_ticks[event_count] = dac_event_ticks[event_count - 1];
-	trigger_edge_ticks[event_count] = trigger_edge_ticks[event_count - 1];
+	dac_event_ticks[event_count] = dac_event_ticks[event_count - 1] - 1;
+	trigger_edge_ticks[event_count] = trigger_edge_ticks[event_count - 1] - 1;
 	dac_codes[event_count] = 0;
 
 	return event_count;
@@ -248,6 +237,10 @@ static HAL_StatusTypeDef startDmaBlock(uint16_t event_count)
 
 	// We start CH3 before CH1, because the DAC event occurs slightly earlier
 
+	if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_3, &trigger_edge_ticks[1], event_count) != HAL_OK)
+	{
+		return HAL_ERROR;
+	}
 	if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_1, &dac_event_ticks[1], event_count) != HAL_OK)
 	{
 		return HAL_ERROR;
@@ -271,7 +264,7 @@ void servicePulseDma(stimCommandQueue *stim_queue)
         dma_block_active = false;
     }
 
-    if (stim_queue->tail == stim_queue->head)
+    if (stim_queue->count == 0)
     {
         return;
     }

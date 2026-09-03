@@ -3,6 +3,7 @@
  *
  *  Created on: Jul 31, 2026
  *      Author: k.rodolfo
+ *
  */
 
 #ifndef INC_STIM_COMMAND_MANAGER_H_
@@ -27,6 +28,7 @@ typedef struct{
 	uint16_t remainingSpace;
 	uint16_t head;
 	uint16_t tail;
+	uint16_t count;
 	uint8_t busy_flag;
 	uint8_t stop_flag;
 	uint8_t queue_lock;
@@ -35,7 +37,6 @@ typedef struct{
 void stim_command_init(stimCommandQueue* stim_queue);
 uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
 uint8_t popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in, uint32_t* time_in);
-void updateRemainingSpace(stimCommandQueue* stim_queue);
 void servicePulseDma(stimCommandQueue *stim_queue);
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef* htim);
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef* hdac);

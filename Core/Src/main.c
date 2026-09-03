@@ -214,7 +214,7 @@ void run_com_loop(void)
 	increment_frame_counter();
 	memcpy(frame, &frame_counter, (size_t)sizeof(frame_counter));
 	// Count remaining commands
-	float queued_cmds = (float)(MAX_CMD_LENGTH - stim_queue.remainingSpace);
+	float queued_cmds = (float)(stim_queue.count);
 	memcpy(queue_len, &queued_cmds, sizeof(queued_cmds));
 
 
