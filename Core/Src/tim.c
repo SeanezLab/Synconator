@@ -68,7 +68,7 @@ void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_OC1;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
   {
@@ -412,18 +412,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	if (htim->Instance == TIM7)
 	{
 		//Stimulation loop
-//		stim_loop_flag = 1;
-		run_stim_loop();
-	}
-	if (htim->Instance == TIM2)
-	{
-		//Pulse Period loop
-		completePulsePeriod(&stim_queue);
-	}
-	if (htim->Instance == TIM15)
-	{
-		//Pulse Width loop
-		completePulseWidth();
+		stim_loop_flag = 1;
+//		run_stim_loop();
 	}
 }
 /* USER CODE END 1 */

@@ -12,6 +12,7 @@
 extern "C" {
 #endif
 
+#include "stm32l4xx_hal.h"
 #include <stdint.h>
 
 
@@ -35,11 +36,10 @@ void stim_command_init(stimCommandQueue* stim_queue);
 uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
 uint8_t popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in, uint32_t* time_in);
 void updateRemainingSpace(stimCommandQueue* stim_queue);
-void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period, uint16_t pulse_amp);
-void schedulePulsePeriod(uint32_t time_us);
-void completePulsePeriod(stimCommandQueue* stim_queue);
-void schedulePulseWidth(uint32_t time_us);
-void completePulseWidth();
+void servicePulseDma(stimCommandQueue *stim_queue);
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef* htim);
+void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef* hdac);
+
 
 
 

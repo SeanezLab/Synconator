@@ -131,7 +131,7 @@ int main(void)
      stim_command_init(&stim_queue);
 
      // Init the DAC
-     HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+//     HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
 
 
   /* USER CODE END 2 */
@@ -146,7 +146,9 @@ int main(void)
 	  }
 	  if (stim_loop_flag == 1)
 	  {
-		  run_stim_loop();
+//		  run_stim_loop();
+		  servicePulseDma(&stim_queue);
+		  stim_loop_flag = 0;
 	  }
     /* USER CODE END WHILE */
 
@@ -246,7 +248,7 @@ void run_stim_loop(void)
 		if (cmd_success == 1)
 		{
 			stim_queue.busy_flag = 1;
-			sendPulse(&stim_queue, pulse_width, popped_period, popped_amp);
+//			sendPulse(&stim_queue, pulse_width, popped_period, popped_amp);
 		}
 
 	}

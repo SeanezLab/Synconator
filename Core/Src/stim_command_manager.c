@@ -13,8 +13,39 @@
 #include <string.h>
 #include <math.h>
 #include <stdlib.h>
+#include <stdbool.h>
+
 
 #define TIMING_OFFSET 7 //us
+
+#define PULSES_PER_DMA_BLOCK  64U
+#define EVENTS_PER_PULSE      2U
+#define EVENT_CAPACITY        (PULSES_PER_DMA_BLOCK * EVENTS_PER_PULSE)
+
+#define PULSE_WIDTH_US        10U
+#define DAC_LEAD_US           5U
+#define START_MARGIN_US       1000U
+
+#define DMA_DONE_TIM2_CH1     (1U << 0)
+#define DMA_DONE_TIM2_CH3     (1U << 1)
+#define DMA_DONE_DAC_CH1      (1U << 2)
+#define DMA_DONE_ALL          (DMA_DONE_TIM2_CH1 | \
+                               DMA_DONE_TIM2_CH3 | \
+                               DMA_DONE_DAC_CH1)
+
+/*
+ * One extra entry is used as a terminal DMA transfer.
+ */
+static uint32_t dac_event_ticks[EVENT_CAPACITY + 1U];
+static uint32_t trigger_edge_ticks[EVENT_CAPACITY + 1U];
+static uint16_t dac_codes[EVENT_CAPACITY + 1U];
+
+static volatile uint8_t dma_done_mask = 0U;
+static bool dma_block_active = false;
+static bool timeline_valid = false;
+static uint32_t next_rise_tick = 0U;
+
+
 
 void stim_command_init(stimCommandQueue* stim_queue)
 {
@@ -105,53 +136,182 @@ void updateRemainingSpace(stimCommandQueue* stim_queue)
 	}
 }
 
-void sendPulse(stimCommandQueue* stim_queue, uint32_t pulse_width, uint32_t pulse_period, uint16_t pulse_amp)
+
+static uint16_t amplitudeToDacCode(uint16_t amplitude)
 {
-//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
-	__HAL_TIM_SET_AUTORELOAD(&htim2, pulse_period - TIMING_OFFSET);
-	__HAL_TIM_SET_COUNTER(&htim2, 0);
-	__HAL_TIM_SET_AUTORELOAD(&htim15, pulse_width);
-	__HAL_TIM_SET_COUNTER(&htim15, 0);
-	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
-	HAL_DAC_SetValue(&hdac1,DAC_CHANNEL_1,DAC_ALIGN_12B_R,2048);
-	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
-	HAL_TIM_Base_Start_IT(&htim2); // Stimulation Period (1mhz counter)
-	HAL_TIM_Base_Start_IT(&htim15); // Pulse Width Period (1mhz counter)
+    if (amplitude > 4095U)
+    {
+        return 4095U;
+    }
+
+    return amplitude;
+}
+
+static uint16_t buildDmaBlock(stimCommandQueue* stim_queue)
+{
+	uint16_t event_count = 0;
+	uint16_t pulse_count = 0;
+
+	uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
+	uint32_t earliest_rise = now + START_MARGIN_US; //what is this? Why 1 ms wait?
+
+	// Start a new timeline if the next rise time is too close or has passed
+	if (!timeline_valid || (int32_t)(next_rise_tick - earliest_rise) < 0)
+	{
+		timeline_valid = true;
+	}
+
+	while (pulse_count < PULSES_PER_DMA_BLOCK && stim_queue->tail != stim_queue->head)
+	{
+		uint16_t amplitude;
+		uint32_t period;
+
+		// Attempt to pop a command
+		if (!popCommand(stim_queue, &amplitude, &period))
+		{
+			break;
+		}
+
+		// Prevent the next DAC amplitude from overlapping this pulse
+		if (period < PULSE_WIDTH_US + DAC_LEAD_US)
+		{
+			continue;
+		}
+
+		uint32_t rise_tick = next_rise_tick;
+		uint32_t fall_tick = rise_tick + PULSE_WIDTH_US;
+
+		// Set the amplitude right before the trigger rises.
+		dac_event_ticks[event_count] = rise_tick - DAC_LEAD_US;
+		dac_codes[event_count] = amplitudeToDacCode(amplitude);
+
+		// Digital rising edge
+		trigger_edge_ticks[event_count] = rise_tick;
+
+		event_count++;
+
+		// Return DAC to zero when the trigger falls
+		dac_event_ticks[event_count] = fall_tick;
+		dac_codes[event_count] = 0;
+
+		// Digital falling edge
+		trigger_edge_ticks[event_count] = fall_tick;
+
+		event_count++;
+		pulse_count++;
+
+		// Period is measured between rising edges. Unsigned addition handles TIM2 rollovers.
+		next_rise_tick += period;
+	}
+
+	if (event_count == 0)
+	{
+		return 0;
+	}
+
+	// Each DMA gets one final transfer at the last event. Writing a compared time a tick behind the current
+	// counter prevents another match until TIM2 wraps. The DAC dummy tranfer acks the final DAC DMA request
+	// and leave zero preloaded
+
+	dac_event_ticks[event_count] = dac_event_ticks[event_count - 1];
+	trigger_edge_ticks[event_count] = trigger_edge_ticks[event_count - 1];
+	dac_codes[event_count] = 0;
+
+	return event_count;
+}
+
+static HAL_StatusTypeDef startDmaBlock(uint16_t event_count)
+{
+	dma_done_mask = 0;
+
+	//Seed the first compare values. DMA cannot load until the first compare event occurs.
+
+	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, dac_event_ticks[0]);
+	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, trigger_edge_ticks[0]);
+
+	// First DAC Value must be placed in the DHR (data holding register) before the first external trigger
+	if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, dac_codes[0]) != HAL_OK)
+	{
+		return HAL_ERROR;
+	}
+
+	// Clear all flags on timer 2
+	__HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_CC1 | TIM_FLAG_CC3);
+
+	// DMA Source begins at element 1, as element 0 was seeded manually. The final terminal entry means the
+	// length is always an even count. The dac_codes are uin16_t because DAC_DMA is configured half-word.
+
+	if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t*)&dac_codes[1], event_count, DAC_ALIGN_12B_R) != HAL_OK)
+	{
+		return HAL_ERROR;
+	}
+
+	// We start CH3 before CH1, because the DAC event occurs slightly earlier
+
+	if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_1, &dac_event_ticks[1], event_count) != HAL_OK)
+	{
+		return HAL_ERROR;
+	}
+
+	dma_block_active = true;
+
+	return HAL_OK;
 
 }
 
-void schedulePulsePeriod(uint32_t time_us)
+void servicePulseDma(stimCommandQueue *stim_queue)
 {
-	__HAL_TIM_SET_AUTORELOAD(&htim2, time_us);
-	__HAL_TIM_SET_COUNTER(&htim2, 0);
-//	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
-	HAL_TIM_Base_Start_IT(&htim2); // Stimulation Period (1mhz counter)
+    if (dma_block_active)
+    {
+        if (dma_done_mask != DMA_DONE_ALL)
+        {
+            return;
+        }
+
+        dma_block_active = false;
+    }
+
+    if (stim_queue->tail == stim_queue->head)
+    {
+        return;
+    }
+
+    uint16_t event_count = buildDmaBlock(stim_queue);
+
+    if (event_count == 0)
+    {
+        return;
+    }
+
+    if (startDmaBlock(event_count) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }
 
-void completePulsePeriod(stimCommandQueue* stim_queue)
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef* htim)
 {
-//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET);
-	HAL_TIM_Base_Stop_IT(&htim2);
-	stim_queue->busy_flag = 0;
-//	HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
+	if (htim->Instance != TIM2)
+	{
+		return;
+	}
 
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+	{
+		dma_done_mask |= DMA_DONE_TIM2_CH1;
+	}
+	else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3)
+	{
+		dma_done_mask |= DMA_DONE_TIM2_CH3;
+	}
 }
 
-void schedulePulseWidth(uint32_t time_us)
+void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef* hdac)
 {
-	__HAL_TIM_SET_AUTORELOAD(&htim15, time_us);
-	__HAL_TIM_SET_COUNTER(&htim15, 0);
-	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_SET);
-	HAL_TIM_Base_Start_IT(&htim15); // Pulse Width Period (1mhz counter)
+	if (hdac->Instance == DAC1)
+	{
+		dma_done_mask |= DMA_DONE_DAC_CH1;
+	}
 }
 
-void completePulseWidth()
-{
-	HAL_TIM_Base_Stop_IT(&htim15);
-	HAL_GPIO_WritePin(Trigger_GPIO_Port, Trigger_Pin, GPIO_PIN_RESET);
-	HAL_DAC_SetValue(&hdac1,DAC_CHANNEL_1,DAC_ALIGN_12B_R,0);
-	//GP8403_SetMillivolts(&dac, GP8403_CHANNEL_0, 0); //amplitude is given in mV.
-
-}
 
