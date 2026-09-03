@@ -77,13 +77,6 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, uint32_t* perio
 		cmd_size = stim_queue->remainingSpace;
 	}
 
-	uint16_t start_index = stim_queue->tail;
-	for (uint16_t i = 0; i < cmd_size; ++i)
-	{
-		stim_queue->ampArray[start_index+i] = amp[i];
-		stim_queue->periodArray[start_index+i] = period[i];
-	}
-
 	for (uint16_t i = 0; i < cmd_size; i++)
 	{
 	    uint16_t index = (stim_queue->tail + i) % MAX_CMD_LENGTH;
@@ -137,8 +130,8 @@ static uint16_t amplitudeToDacCode(uint16_t amplitude)
 
 static uint16_t buildDmaBlock(stimCommandQueue* stim_queue)
 {
-	uint16_t event_count = 0;
-	uint16_t pulse_count = 0;
+	uint16_t event_count = 0; // This is an edge
+	uint16_t pulse_count = 0; // this a full stimulation
 
 	uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
 	uint32_t earliest_rise = now + START_MARGIN_US; //what is this? Why 1 ms wait?
@@ -162,7 +155,7 @@ static uint16_t buildDmaBlock(stimCommandQueue* stim_queue)
 		}
 
 		// Prevent the next DAC amplitude from overlapping this pulse
-		if (period < PULSE_WIDTH_US + DAC_LEAD_US)
+		if (period <= PULSE_WIDTH_US + DAC_LEAD_US)
 		{
 			continue;
 		}
@@ -179,7 +172,7 @@ static uint16_t buildDmaBlock(stimCommandQueue* stim_queue)
 
 		event_count++;
 
-		// Return DAC to zero when the trigger falls
+		// Return DAC to zero when the trigger falls TODO take into account fall time
 		dac_event_ticks[event_count] = fall_tick;
 		dac_codes[event_count] = 0;
 
@@ -199,7 +192,7 @@ static uint16_t buildDmaBlock(stimCommandQueue* stim_queue)
 	}
 
 	// Each DMA gets one final transfer at the last event. Writing a compared time a tick behind the current
-	// counter prevents another match until TIM2 wraps. The DAC dummy tranfer acks the final DAC DMA request
+	// counter prevents another match until TIM2 wraps. The DAC dummy transfer acks the final DAC DMA request
 	// and leave zero preloaded
 
 	dac_event_ticks[event_count] = dac_event_ticks[event_count - 1] - 1;

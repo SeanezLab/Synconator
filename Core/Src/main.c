@@ -144,12 +144,13 @@ int main(void)
 	  {
 		  run_com_loop();
 	  }
-	  if (stim_loop_flag == 1)
-	  {
-//		  run_stim_loop();
-		  servicePulseDma(&stim_queue);
-		  stim_loop_flag = 0;
-	  }
+	  servicePulseDma(&stim_queue);
+//	  if (stim_loop_flag == 1)
+//	  {
+////		  run_stim_loop();
+//		  servicePulseDma(&stim_queue);
+//		  stim_loop_flag = 0;
+//	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
