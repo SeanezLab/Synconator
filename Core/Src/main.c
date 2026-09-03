@@ -117,7 +117,7 @@ int main(void)
   // starting timers
 
      HAL_TIM_Base_Start_IT(&htim6); // Communications loop (100hz)
-     HAL_TIM_Base_Start_IT(&htim7); // Stimulation loop (66667hz)
+//     HAL_TIM_Base_Start_IT(&htim7); // No longer needed for DMA servicing
 
 
 
@@ -145,12 +145,6 @@ int main(void)
 		  run_com_loop();
 	  }
 	  servicePulseDma(&stim_queue);
-//	  if (stim_loop_flag == 1)
-//	  {
-////		  run_stim_loop();
-//		  servicePulseDma(&stim_queue);
-//		  stim_loop_flag = 0;
-//	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -233,30 +227,6 @@ void run_com_loop(void)
 	}
 	com_loop_flag = 0;
 }
-
-void run_stim_loop(void)
-{
-	// Check if the stim command queue is still busy
-	//HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_SET); //This loop take 7.1 us to run w/out popping.
-	if (stim_queue.busy_flag == 0 && stim_queue.tail != stim_queue.head)
-	{
-		static uint16_t popped_amp = 0;
-		static uint32_t popped_period = 500;
-		static uint32_t pulse_width = 10; //10 us
-		uint8_t cmd_success = 1;
-		cmd_success = popCommand(&stim_queue, &popped_amp, &popped_period);
-		//send a stimulation pulse (Set reload to 4 when feeling brave)
-		if (cmd_success == 1)
-		{
-			stim_queue.busy_flag = 1;
-//			sendPulse(&stim_queue, pulse_width, popped_period, popped_amp);
-		}
-
-	}
-	stim_loop_flag = 0;
-	//HAL_GPIO_WritePin(Timing_GPIO_Port, Timing_Pin, GPIO_PIN_RESET);
-}
-
 
 /* USER CODE END 4 */
 

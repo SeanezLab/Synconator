@@ -258,7 +258,33 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 				uint32_t period_int = (uint32_t)current_period;
 				incoming_period[i] = period_int;
 			}
+			changeStimMode(&stim_queue, 0);
+			pushCommand(&stim_queue, incoming_amplitude, incoming_period, incoming_cmd_size);
+		}
+		if (condition == 3)
+		// continuous stim packet
+		{
+			uint16_t incoming_cmd_size = (payload_length - 4) / CMD_LENGTH;// TODO add a check if this doesn't evaluate to a whole number
+			uint32_t incoming_period[incoming_cmd_size];
+			uint16_t incoming_amplitude[incoming_cmd_size];
 
+			for (uint16_t i = 0; i < incoming_cmd_size; i++)
+			{
+				// Setting our idxs
+				uint16_t amp_idx = 2*i;
+				uint16_t period_idx = 2*i+1;
+				// Add the amplitude into the array
+				float current_amp;
+				memcpy(&current_amp, &(rdg_struct->buffer[payload_start+sizeof(float)+sizeof(float)*amp_idx]), sizeof(float));
+				uint16_t amp_int = (uint16_t)current_amp;
+				incoming_amplitude[i] = amp_int;
+				// Add the period into the array
+				float current_period;
+				memcpy(&current_period, &(rdg_struct->buffer[payload_start+sizeof(float)+sizeof(float)*period_idx]), sizeof(float));
+				uint32_t period_int = (uint32_t)current_period;
+				incoming_period[i] = period_int;
+			}
+			changeStimMode(&stim_queue, 1);
 			pushCommand(&stim_queue, incoming_amplitude, incoming_period, incoming_cmd_size);
 		}
 

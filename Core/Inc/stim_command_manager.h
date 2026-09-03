@@ -32,13 +32,18 @@ typedef struct{
 	uint8_t busy_flag;
 	uint8_t stop_flag;
 	uint8_t queue_lock;
+	uint8_t stim_mode;// 0 is single, 1 is continuous (continuous holds the last)
+	uint16_t last_amp;
+	uint32_t last_period;
 }stimCommandQueue;
 
 void stim_command_init(stimCommandQueue* stim_queue);
 uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
 uint8_t popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in, uint32_t* time_in);
 void servicePulseDma(stimCommandQueue *stim_queue);
+void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef* htim);
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef* htim);
+void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef* hdac);
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef* hdac);
 
 

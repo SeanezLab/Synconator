@@ -24,7 +24,6 @@
 #include "structs.h"
 
 volatile uint8_t com_loop_flag = 0;
-volatile uint8_t stim_loop_flag = 0;
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef htim2;
@@ -222,7 +221,7 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
     hdma_tim2_ch1.Init.MemInc = DMA_MINC_ENABLE;
     hdma_tim2_ch1.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
     hdma_tim2_ch1.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
-    hdma_tim2_ch1.Init.Mode = DMA_NORMAL;
+    hdma_tim2_ch1.Init.Mode = DMA_CIRCULAR;
     hdma_tim2_ch1.Init.Priority = DMA_PRIORITY_LOW;
     if (HAL_DMA_Init(&hdma_tim2_ch1) != HAL_OK)
     {
@@ -239,7 +238,7 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
     hdma_tim2_ch3.Init.MemInc = DMA_MINC_ENABLE;
     hdma_tim2_ch3.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
     hdma_tim2_ch3.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
-    hdma_tim2_ch3.Init.Mode = DMA_NORMAL;
+    hdma_tim2_ch3.Init.Mode = DMA_CIRCULAR;
     hdma_tim2_ch3.Init.Priority = DMA_PRIORITY_LOW;
     if (HAL_DMA_Init(&hdma_tim2_ch3) != HAL_OK)
     {
@@ -408,12 +407,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	{
 		//Communications loop
 		com_loop_flag = 1;
-	}
-	if (htim->Instance == TIM7)
-	{
-		//Stimulation loop
-		stim_loop_flag = 1;
-//		run_stim_loop();
 	}
 }
 /* USER CODE END 1 */
