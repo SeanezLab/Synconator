@@ -80,6 +80,25 @@ void stim_command_init(stimCommandQueue* stim_queue)
 	stim_queue->last_period = 0;
 }
 
+uint8_t getLastAmp(simCommandQueue* stim_queue, uint16_t* amp_in)
+{
+	if (stim_queue->queue_lock == 1U)
+	{
+		return 0U;
+	}
+	*amp_in = stim_queue->last_amp;
+	return 1U;
+}
+
+uint8_t getLastPeriod(simCommandQueue* stim_queue, uint16_t* period_in)
+{
+	if (stim_queue->queue_lock == 1U)
+	{
+		return 0U;
+	}
+	*period_in = stim_queue->last_period;
+	return 1U;
+}
 
 uint8_t changeStimMode(stimCommandQueue* stim_queue, uint8_t incoming_mode)
 {
@@ -143,6 +162,8 @@ uint8_t popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in,
 	{
 		*amp_in = stim_queue->ampArray[stim_queue->head];
 		*time_in = stim_queue->periodArray[stim_queue->head];
+		stim_queue->last_amp = *amp_in;
+		stim_queue->last_period = *time_in;
 		stim_queue->queue_lock = 0U;
 		return 1U;
 	}

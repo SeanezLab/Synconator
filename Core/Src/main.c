@@ -211,6 +211,9 @@ void run_com_loop(void)
 	// Count remaining commands
 	float queued_cmds = (float)(stim_queue.count);
 	memcpy(queue_len, &queued_cmds, sizeof(queued_cmds));
+	// Get the last stim period
+	float last_period = (float)stim_queue.last_period;
+	memcpy(queue_time, &last_period, sizeof(last_period));
 
 
 	compile_data_sources(5,
