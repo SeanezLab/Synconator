@@ -24,9 +24,17 @@
 #define DMA_DONE_TIM2_CH1     (1U << 0)
 #define DMA_DONE_TIM2_CH3     (1U << 1)
 #define DMA_DONE_DAC_CH1      (1U << 2)
+#define DMA_DONE_GPIO_CC2     (1U << 3)
 #define DMA_DONE_ALL          (DMA_DONE_TIM2_CH1 | \
                                DMA_DONE_TIM2_CH3 | \
-                               DMA_DONE_DAC_CH1)
+                               DMA_DONE_DAC_CH1 | \
+                               DMA_DONE_GPIO_CC2)
+
+#define D188_GPIO_PORT        D188_1_GPIO_Port
+#define D188_ALL_PINS         (D188_1_Pin | D188_2_Pin | \
+                               D188_3_Pin | D188_4_Pin | \
+                               D188_5_Pin | D188_6_Pin | \
+                               D188_7_Pin | D188_8_Pin)
 
 #if (DMA_EVENTS_PER_HALF % EVENTS_PER_PULSE) != 0U
 #error "Each circular DMA half must contain complete pulses"
@@ -40,16 +48,19 @@ typedef enum
 
 /*
  * These are DMA transfer values. Event zero is seeded directly into CCR1,
- * CCR3, and the DAC DHR before the circular streams are started.
+ * CCR2, CCR3, and the DAC DHR before the circular streams are started.
  */
 static uint32_t dac_dma_ticks[DMA_EVENT_COUNT];
+static uint32_t gpio_dma_ticks[DMA_EVENT_COUNT];
 static uint32_t trigger_dma_ticks[DMA_EVENT_COUNT];
 static uint16_t dac_dma_codes[DMA_EVENT_COUNT];
+static volatile uint32_t gpio_bsrr_values[DMA_EVENT_COUNT];
 
 /*
  * Half zero is released by half-transfer callbacks; half one is released by
- * transfer-complete callbacks. All three DMA streams must release a half
- * before software may rewrite it.
+ * transfer-complete callbacks. The GPIO half is released by the CC2 interrupt
+ * after its final BSRR value has been consumed. All four event streams must
+ * release a half before software may rewrite it.
  */
 static volatile uint8_t dma_half_done_mask[2] = {0U, 0U};
 
@@ -61,7 +72,44 @@ static PulseEventPhase next_event_phase = NEXT_EVENT_RISE;
 static uint32_t next_rise_tick = 0U;
 static uint32_t current_fall_tick = 0U;
 static uint32_t last_dac_event_tick = 0U;
+static uint32_t last_gpio_event_tick = 0U;
 static uint32_t last_trigger_event_tick = 0U;
+
+/* Event zero is not in the circular arrays, so its GPIO value is kept here. */
+static volatile uint32_t first_gpio_bsrr = 0U;
+static volatile uint16_t gpio_bsrr_index = 0U;
+static volatile bool first_gpio_event_pending = false;
+
+static const uint16_t d188_pins[8] =
+{
+	D188_1_Pin,
+	D188_2_Pin,
+	D188_3_Pin,
+	D188_4_Pin,
+	D188_5_Pin,
+	D188_6_Pin,
+	D188_7_Pin,
+	D188_8_Pin
+};
+
+/* Bit zero selects D188_1, bit one selects D188_2, and so on. */
+static uint32_t gpioMaskToBsrr(uint8_t gpio_mask)
+{
+	uint16_t pins_to_set = 0U;
+
+	for (uint8_t channel = 0U; channel < 8U; channel++)
+	{
+		if ((gpio_mask & (1U << channel)) != 0U)
+		{
+			pins_to_set |= d188_pins[channel];
+		}
+	}
+
+	uint16_t pins_to_reset =
+			(uint16_t)(D188_ALL_PINS & (uint16_t)~pins_to_set);
+
+	return (uint32_t)pins_to_set | ((uint32_t)pins_to_reset << 16U);
+}
 
 void stim_command_init(stimCommandQueue* stim_queue)
 {
@@ -82,7 +130,7 @@ void stim_command_init(stimCommandQueue* stim_queue)
 	stim_queue->last_period = 0;
 }
 
-uint8_t getLastGpio(stimCommandQueue* stim_queue, uint16_t* gpio_in)
+uint8_t getLastGpio(stimCommandQueue* stim_queue, uint8_t* gpio_in)
 {
 	if (stim_queue->queue_lock == 1U)
 	{
@@ -102,7 +150,7 @@ uint8_t getLastAmp(stimCommandQueue* stim_queue, uint16_t* amp_in)
 	return 1U;
 }
 
-uint8_t getLastPeriod(stimCommandQueue* stim_queue, uint16_t* period_in)
+uint8_t getLastPeriod(stimCommandQueue* stim_queue, uint32_t* period_in)
 {
 	if (stim_queue->queue_lock == 1U)
 	{
@@ -171,8 +219,9 @@ uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* gpio_in, uint16_t* amp
 		return 0U;
 	}
 
-	if ((stim_queue->count == 1U) & (stim_queue->stim_mode == 1))
+	if ((stim_queue->count == 1U) && (stim_queue->stim_mode == 1U))
 	{
+		*gpio_in = stim_queue->gpioArray[stim_queue->head];
 		*amp_in = stim_queue->ampArray[stim_queue->head];
 		*time_in = stim_queue->periodArray[stim_queue->head];
 		stim_queue->last_gpio = *gpio_in;
@@ -183,6 +232,7 @@ uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* gpio_in, uint16_t* amp
 	}
 
 
+	*gpio_in = stim_queue->gpioArray[stim_queue->head];
 	*amp_in = stim_queue->ampArray[stim_queue->head];
 	*time_in = stim_queue->periodArray[stim_queue->head];
 	stim_queue->last_gpio = *gpio_in;
@@ -207,20 +257,25 @@ static uint16_t amplitudeToDacCode(uint16_t amplitude)
 }
 
 /*
- * Generate one synchronized DAC/trigger event. A rising event consumes one
- * command. Its falling event is generated on the next call without consuming
- * another command.
+ * Generate one synchronized DAC/GPIO/trigger event. A rising event consumes
+ * one command. Its falling event is generated on the next call without
+ * consuming another command.
  */
 static bool buildNextEvent(stimCommandQueue* stim_queue,
-		uint32_t* dac_tick, uint32_t* trigger_tick, uint16_t* dac_code)
+		uint32_t* dac_tick, uint32_t* gpio_tick, uint32_t* trigger_tick,
+		uint16_t* dac_code, uint32_t* gpio_bsrr)
 {
 	if (next_event_phase == NEXT_EVENT_FALL)
 	{
 		*dac_tick = current_fall_tick;
+		*gpio_tick = current_fall_tick;
 		*trigger_tick = current_fall_tick;
 		*dac_code = 0U;
+		/* GPIO modes persist between pulses. A zero BSRR write is a no-op. */
+		*gpio_bsrr = 0U;
 
 		last_dac_event_tick = *dac_tick;
+		last_gpio_event_tick = *gpio_tick;
 		last_trigger_event_tick = *trigger_tick;
 		next_event_phase = NEXT_EVENT_RISE;
 
@@ -248,10 +303,13 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 		current_fall_tick = rise_tick + PULSE_WIDTH_US;
 
 		*dac_tick = rise_tick - DAC_LEAD_US;
+		*gpio_tick = rise_tick;
 		*trigger_tick = rise_tick;
 		*dac_code = amplitudeToDacCode(amplitude);
+		*gpio_bsrr = gpioMaskToBsrr(gpio);
 
 		last_dac_event_tick = *dac_tick;
+		last_gpio_event_tick = *gpio_tick;
 		last_trigger_event_tick = *trigger_tick;
 		next_event_phase = NEXT_EVENT_FALL;
 
@@ -265,7 +323,7 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 }
 
 /*
- * Fill a released half of all three DMA buffers. If the command queue runs
+ * Fill a released half of all four event buffers. If the command queue runs
  * empty, insert a parked compare value after the final falling event. This
  * safely stalls the compare chain until servicePulseDma() stops the streams.
  */
@@ -276,24 +334,32 @@ static bool fillDmaRange(stimCommandQueue* stim_queue,
 
 	for (uint16_t i = start_index; i < end_index; i++)
 	{
+		uint32_t gpio_bsrr;
+
 		if (!buildNextEvent(stim_queue, &dac_dma_ticks[i],
-				&trigger_dma_ticks[i], &dac_dma_codes[i]))
+				&gpio_dma_ticks[i], &trigger_dma_ticks[i],
+				&dac_dma_codes[i], &gpio_bsrr))
 		{
 			uint32_t parked_dac_tick = last_dac_event_tick - 1U;
+			uint32_t parked_gpio_tick = last_gpio_event_tick - 1U;
 			uint32_t parked_trigger_tick =
 					last_trigger_event_tick - 1U;
 
 			for (uint16_t park = i; park < end_index; park++)
 			{
 				dac_dma_ticks[park] = parked_dac_tick;
+				gpio_dma_ticks[park] = parked_gpio_tick;
 				trigger_dma_ticks[park] = parked_trigger_tick;
 				dac_dma_codes[park] = 0U;
+				gpio_bsrr_values[park] = 0U;
 			}
 
 			stop_planned = true;
 			stop_after_tick = last_trigger_event_tick + 1U;
 			return false;
 		}
+
+		gpio_bsrr_values[i] = gpio_bsrr;
 	}
 
 	return true;
@@ -302,16 +368,18 @@ static bool fillDmaRange(stimCommandQueue* stim_queue,
 static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 {
 	uint32_t first_dac_tick;
+	uint32_t first_gpio_tick;
 	uint32_t first_trigger_tick;
 	uint16_t first_dac_code;
+	uint32_t first_gpio_value;
 
 	next_rise_tick =
 			__HAL_TIM_GET_COUNTER(&htim2) + START_MARGIN_US;
 	next_event_phase = NEXT_EVENT_RISE;
 	stop_planned = false;
 
-	if (!buildNextEvent(stim_queue, &first_dac_tick,
-			&first_trigger_tick, &first_dac_code))
+	if (!buildNextEvent(stim_queue, &first_dac_tick, &first_gpio_tick,
+			&first_trigger_tick, &first_dac_code, &first_gpio_value))
 	{
 		return HAL_OK;
 	}
@@ -322,7 +390,11 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 	(void)fillDmaRange(stim_queue, 0U, DMA_EVENT_COUNT);
 
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, first_dac_tick);
+	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, first_gpio_tick);
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, first_trigger_tick);
+	first_gpio_bsrr = first_gpio_value;
+	first_gpio_event_pending = true;
+	gpio_bsrr_index = 0U;
 
 	if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1,
 			DAC_ALIGN_12B_R, first_dac_code) != HAL_OK)
@@ -330,7 +402,8 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 		return HAL_ERROR;
 	}
 
-	__HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_CC1 | TIM_FLAG_CC3);
+	__HAL_TIM_CLEAR_FLAG(&htim2,
+			TIM_FLAG_CC1 | TIM_FLAG_CC2 | TIM_FLAG_CC3);
 	dma_half_done_mask[0] = 0U;
 	dma_half_done_mask[1] = 0U;
 
@@ -342,7 +415,7 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 	}
 
 	/* Starting CH3 enables TIM2. The first event is START_MARGIN_US in the
-	 * future, leaving ample time to start CH1 afterward.
+	 * future, leaving ample time to start the remaining channels afterward.
 	 */
 	if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_3,
 			trigger_dma_ticks, DMA_EVENT_COUNT) != HAL_OK)
@@ -356,6 +429,20 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 		return HAL_ERROR;
 	}
 
+	if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_2,
+			gpio_dma_ticks, DMA_EVENT_COUNT) != HAL_OK)
+	{
+		return HAL_ERROR;
+	}
+	__HAL_DMA_DISABLE_IT(htim2.hdma[TIM_DMA_ID_CC2], DMA_IT_HT | DMA_IT_TC);
+
+	/* CC2 drives both DMA and an interrupt. DMA advances CCR2; the interrupt
+	 * applies the BSRR value associated with the compare that just occurred.
+	 * DMA half/full interrupts are unused because the BSRR consumer determines
+	 * when each half is safe to refill.
+	 */
+	__HAL_TIM_ENABLE_IT(&htim2, TIM_IT_CC2);
+
 	pulse_dma_active = true;
 
 	return HAL_OK;
@@ -363,8 +450,11 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 
 static void stopPulseDma(void)
 {
+	__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC2);
+	(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_2);
 	(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_1);
 	(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_3);
+	__HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_CC2);
 
 	/* The final real DAC event set the output to zero. Stop its circular DMA,
 	 * then re-enable the DAC without DMA so it continues driving zero.
@@ -379,6 +469,8 @@ static void stopPulseDma(void)
 	pulse_dma_active = false;
 	stop_planned = false;
 	next_event_phase = NEXT_EVENT_RISE;
+	first_gpio_event_pending = false;
+	gpio_bsrr_index = 0U;
 }
 
 static bool tickReached(uint32_t now, uint32_t deadline)
@@ -417,6 +509,38 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 			(void)fillDmaRange(stim_queue, start_index,
 					DMA_EVENTS_PER_HALF);
 		}
+	}
+}
+
+void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef* htim)
+{
+	if (htim->Instance != TIM2 ||
+			htim->Channel != HAL_TIM_ACTIVE_CHANNEL_2)
+	{
+		return;
+	}
+
+	if (first_gpio_event_pending)
+	{
+		D188_GPIO_PORT->BSRR = first_gpio_bsrr;
+		first_gpio_event_pending = false;
+		return;
+	}
+
+	D188_GPIO_PORT->BSRR = gpio_bsrr_values[gpio_bsrr_index];
+	gpio_bsrr_index++;
+
+	/* DMA loads the next CCR2 value at the current compare. Waiting until the
+	 * interrupt consumes the final BSRR entry prevents an early buffer refill.
+	 */
+	if (gpio_bsrr_index == DMA_EVENTS_PER_HALF)
+	{
+		dma_half_done_mask[0] |= DMA_DONE_GPIO_CC2;
+	}
+	else if (gpio_bsrr_index == DMA_EVENT_COUNT)
+	{
+		gpio_bsrr_index = 0U;
+		dma_half_done_mask[1] |= DMA_DONE_GPIO_CC2;
 	}
 }
 

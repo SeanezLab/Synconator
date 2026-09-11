@@ -70,10 +70,6 @@ void run_stim_loop(void);
 #define D188_2_GPIO_Port GPIOC
 #define D188_3_Pin GPIO_PIN_3
 #define D188_3_GPIO_Port GPIOC
-#define USART_TX_Pin GPIO_PIN_2
-#define USART_TX_GPIO_Port GPIOA
-#define USART_RX_Pin GPIO_PIN_3
-#define USART_RX_GPIO_Port GPIOA
 #define SMPS_PG_Pin GPIO_PIN_6
 #define SMPS_PG_GPIO_Port GPIOA
 #define SMPS_SW_Pin GPIO_PIN_7

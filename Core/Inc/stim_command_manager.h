@@ -40,12 +40,14 @@ typedef struct{
 }stimCommandQueue;
 
 void stim_command_init(stimCommandQueue* stim_queue);
-uint8_t getLastGpio(stimCommandQueue* stim_queue, uint16_t* gpio_in);
+uint8_t getLastGpio(stimCommandQueue* stim_queue, uint8_t* gpio_in);
 uint8_t getLastAmp(stimCommandQueue* stim_queue, uint16_t* amp_in);
-uint8_t getLastPeriod(stimCommandQueue* stim_queue, uint16_t* period_in);
+uint8_t getLastPeriod(stimCommandQueue* stim_queue, uint32_t* period_in);
+uint8_t changeStimMode(stimCommandQueue* stim_queue, uint8_t incoming_mode);
 uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* gpio, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
 uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* gpio_in, uint16_t* amp_in, uint32_t* time_in);
 void servicePulseDma(stimCommandQueue *stim_queue);
+void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef* htim);
 void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef* htim);
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef* htim);
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef* hdac);
