@@ -65,6 +65,7 @@ static uint32_t last_trigger_event_tick = 0U;
 
 void stim_command_init(stimCommandQueue* stim_queue)
 {
+	memset(stim_queue->gpioArray, 0, sizeof(stim_queue->gpioArray));
 	memset(stim_queue->ampArray, 0, sizeof(stim_queue->ampArray));
 	memset(stim_queue->periodArray, 0, sizeof(stim_queue->periodArray));
 	stim_queue->totalTime = 0;
@@ -76,8 +77,19 @@ void stim_command_init(stimCommandQueue* stim_queue)
 	stim_queue->stop_flag = 0;
 	stim_queue->queue_lock = 0;
 	stim_queue->stim_mode = 0;
+	stim_queue->last_gpio = 0;
 	stim_queue->last_amp = 0;
 	stim_queue->last_period = 0;
+}
+
+uint8_t getLastGpio(simCommandQueue* stim_queue, uint16_t* gpio_in)
+{
+	if (stim_queue->queue_lock == 1U)
+	{
+		return 0U;
+	}
+	*gpio_in = stim_queue->last_gpio;
+	return 1U;
 }
 
 uint8_t getLastAmp(simCommandQueue* stim_queue, uint16_t* amp_in)
@@ -111,7 +123,7 @@ uint8_t changeStimMode(stimCommandQueue* stim_queue, uint8_t incoming_mode)
 	return 1U;
 }
 
-uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp,
+uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* gpio, uint16_t* amp,
 		uint32_t* period, uint16_t cmd_size)
 {
 	if (stim_queue->queue_lock == 1U)
@@ -129,6 +141,7 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp,
 	for (uint16_t i = 0U; i < cmd_size; i++)
 	{
 		uint16_t index = (stim_queue->tail + i) % MAX_CMD_LENGTH;
+		stim_queue->gpioArray[index] = gpio[i];
 		stim_queue->ampArray[index] = amp[i];
 		stim_queue->periodArray[index] = period[i];
 	}
@@ -142,7 +155,7 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint16_t* amp,
 	return 1U;
 }
 
-uint8_t popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in,
+uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* gpio_in, uint16_t* amp_in,
 		uint32_t* time_in)
 {
 	if (stim_queue->queue_lock == 1U)
@@ -162,6 +175,7 @@ uint8_t popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in,
 	{
 		*amp_in = stim_queue->ampArray[stim_queue->head];
 		*time_in = stim_queue->periodArray[stim_queue->head];
+		stim_queue->last_gpio = *gpio_in;
 		stim_queue->last_amp = *amp_in;
 		stim_queue->last_period = *time_in;
 		stim_queue->queue_lock = 0U;
@@ -171,6 +185,7 @@ uint8_t popCommand(stimCommandQueue* stim_queue, uint16_t* amp_in,
 
 	*amp_in = stim_queue->ampArray[stim_queue->head];
 	*time_in = stim_queue->periodArray[stim_queue->head];
+	stim_queue->last_gpio = *gpio_in;
 	stim_queue->last_amp = *amp_in;
 	stim_queue->last_period = *time_in;
 	stim_queue->head = (stim_queue->head + 1U) % MAX_CMD_LENGTH;
