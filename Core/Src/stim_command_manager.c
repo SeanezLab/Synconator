@@ -82,7 +82,7 @@ void stim_command_init(stimCommandQueue* stim_queue)
 	stim_queue->last_period = 0;
 }
 
-uint8_t getLastGpio(simCommandQueue* stim_queue, uint16_t* gpio_in)
+uint8_t getLastGpio(stimCommandQueue* stim_queue, uint16_t* gpio_in)
 {
 	if (stim_queue->queue_lock == 1U)
 	{
@@ -92,7 +92,7 @@ uint8_t getLastGpio(simCommandQueue* stim_queue, uint16_t* gpio_in)
 	return 1U;
 }
 
-uint8_t getLastAmp(simCommandQueue* stim_queue, uint16_t* amp_in)
+uint8_t getLastAmp(stimCommandQueue* stim_queue, uint16_t* amp_in)
 {
 	if (stim_queue->queue_lock == 1U)
 	{
@@ -102,7 +102,7 @@ uint8_t getLastAmp(simCommandQueue* stim_queue, uint16_t* amp_in)
 	return 1U;
 }
 
-uint8_t getLastPeriod(simCommandQueue* stim_queue, uint16_t* period_in)
+uint8_t getLastPeriod(stimCommandQueue* stim_queue, uint16_t* period_in)
 {
 	if (stim_queue->queue_lock == 1U)
 	{
@@ -230,10 +230,11 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 	/* Invalid commands are discarded. */
 	while (stim_queue->count > 0U)
 	{
+		uint8_t gpio;
 		uint16_t amplitude;
 		uint32_t period;
 
-		if (!popCommand(stim_queue, &amplitude, &period))
+		if (!popCommand(stim_queue, &gpio, &amplitude, &period))
 		{
 			return false;
 		}

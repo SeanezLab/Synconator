@@ -32,23 +32,23 @@ extern "C" {
 #include <stdbool.h>
 /* USER CODE END Includes */
 
-extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN Private defines */
 #define RX_DMA_SIZE 256
 extern uint8_t rx_dma_buffer[RX_DMA_SIZE];
-extern volatile uint8_t huart2_tx_complete;
+extern volatile uint8_t huart3_tx_complete;
 extern volatile uint8_t tx_dma_packet;
 extern volatile bool got_msg;
 extern volatile uint16_t msg_size;
 
 /* USER CODE END Private defines */
 
-void MX_USART2_UART_Init(void);
+void MX_USART3_UART_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-void huart2_try_send(uint8_t* msg, uint16_t msg_size);
-void huart2_RTO_handler(void);
+void huart3_try_send(uint8_t* msg, uint16_t msg_size);
+void huart3_RTO_handler(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

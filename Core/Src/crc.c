@@ -174,7 +174,7 @@ void crc_uart_send_data(const uint8_t* src,
     pkt[4 + PAYLOAD_BYTES + 3] = 0x2B;
 
     // 6. Transmit over UART
-    huart2_try_send(pkt, PKT_BYTES);
+    huart3_try_send(pkt, PKT_BYTES);
 //    HAL_UART_Transmit(huart, pkt, PKT_BYTES, HAL_MAX_DELAY); //HAL_MAX_DELAY
 
 }
@@ -239,6 +239,7 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 		// Single shot stim packet
 		{
 			uint16_t incoming_cmd_size = (payload_length - 4) / CMD_LENGTH;// TODO add a check if this doesn't evaluate to a whole number
+			uint8_t incoming_gpio[incoming_cmd_size];
 			uint32_t incoming_period[incoming_cmd_size];
 			uint16_t incoming_amplitude[incoming_cmd_size];
 
@@ -257,14 +258,17 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 				memcpy(&current_period, &(rdg_struct->buffer[payload_start+sizeof(float)+sizeof(float)*period_idx]), sizeof(float));
 				uint32_t period_int = (uint32_t)current_period;
 				incoming_period[i] = period_int;
+				// Placeholder for GPIO
+				incoming_gpio[i] = 0;
 			}
 			changeStimMode(&stim_queue, 0);
-			pushCommand(&stim_queue, incoming_amplitude, incoming_period, incoming_cmd_size);
+			pushCommand(&stim_queue, incoming_gpio, incoming_amplitude, incoming_period, incoming_cmd_size);
 		}
 		if (condition == 3)
 		// continuous stim packet
 		{
 			uint16_t incoming_cmd_size = (payload_length - 4) / CMD_LENGTH;// TODO add a check if this doesn't evaluate to a whole number
+			uint8_t incoming_gpio[incoming_cmd_size];
 			uint32_t incoming_period[incoming_cmd_size];
 			uint16_t incoming_amplitude[incoming_cmd_size];
 
@@ -283,9 +287,11 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 				memcpy(&current_period, &(rdg_struct->buffer[payload_start+sizeof(float)+sizeof(float)*period_idx]), sizeof(float));
 				uint32_t period_int = (uint32_t)current_period;
 				incoming_period[i] = period_int;
+				// Placeholder for GPIO
+								incoming_gpio[i] = 0;
 			}
 			changeStimMode(&stim_queue, 1);
-			pushCommand(&stim_queue, incoming_amplitude, incoming_period, incoming_cmd_size);
+			pushCommand(&stim_queue, incoming_gpio, incoming_amplitude, incoming_period, incoming_cmd_size);
 		}
 
 

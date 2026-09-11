@@ -106,13 +106,13 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_USART2_UART_Init();
   MX_TIM6_Init();
   MX_TIM7_Init();
   MX_TIM2_Init();
   MX_TIM15_Init();
   MX_I2C1_Init();
   MX_DAC1_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
   // starting timers
 
@@ -122,10 +122,10 @@ int main(void)
 
 
      // enabling receive to idle
-     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_dma_buffer, RX_DMA_SIZE);
+     HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rx_dma_buffer, RX_DMA_SIZE);
      // Turn off DMA half-transfer + transfer-complete interupts
-     __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
-     __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_TC);
+     __HAL_DMA_DISABLE_IT(huart3.hdmarx, DMA_IT_HT);
+     __HAL_DMA_DISABLE_IT(huart3.hdmarx, DMA_IT_TC);
 
      // Init our command structures
      stim_command_init(&stim_queue);
@@ -218,7 +218,7 @@ void run_com_loop(void)
 
 	compile_data_sources(5,
 			  status, queue_len, queue_time, debug, frame);
-	crc_uart_send_data(compiled_payload, &huart2);
+	crc_uart_send_data(compiled_payload, &huart3);
 
 //	Check our inbox for any commands
 	if (got_msg == true)
