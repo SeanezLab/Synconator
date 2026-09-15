@@ -56,6 +56,7 @@ static uint16_t dac_dma_codes[DMA_EVENT_COUNT];
 static volatile uint32_t gpio_bsrr_values[DMA_EVENT_COUNT];
 static volatile uint8_t stim_mode_values[DMA_EVENT_COUNT];
 static volatile bool stim_mode_updates[DMA_EVENT_COUNT];
+static volatile bool held_command_events[DMA_EVENT_COUNT];
 
 /*
  * Half zero is released by half-transfer callbacks; half one is released by
@@ -69,6 +70,9 @@ static bool pulse_dma_active = false;
 static bool stop_planned = false;
 static uint32_t stop_after_tick = 0U;
 static stimCommandQueue* volatile active_stim_queue = NULL;
+static volatile bool held_command_active = false;
+static volatile bool dma_flush_requested = false;
+static volatile bool dma_flush_ready = false;
 
 static PulseEventPhase next_event_phase = NEXT_EVENT_RISE;
 static uint32_t next_rise_tick = 0U;
@@ -80,6 +84,7 @@ static uint32_t last_trigger_event_tick = 0U;
 /* Event zero is not in the circular arrays, so its software values are kept here. */
 static volatile uint32_t first_gpio_bsrr = 0U;
 static volatile uint8_t first_stim_mode = 0U;
+static volatile bool first_command_held = false;
 static volatile uint16_t output_event_index = 0U;
 static volatile bool first_output_event_pending = false;
 
@@ -113,6 +118,12 @@ static uint32_t gpioMaskToBsrr(uint16_t gpio_mask)
 			(uint16_t)(OUTPUT_ALL_PINS & (uint16_t)~pins_to_set);
 
 	return (uint32_t)pins_to_set | ((uint32_t)pins_to_reset << 16U);
+}
+
+static bool isRetainedContinuousCommand(const stimCommandQueue* stim_queue)
+{
+	return (stim_queue->count == 1U) &&
+			(stim_queue->modeArray[stim_queue->head] == 1U);
 }
 
 void stim_command_init(stimCommandQueue* stim_queue)
@@ -185,6 +196,19 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio,
 	}
 
 	stim_queue->queue_lock = 1U;
+	bool replace_held_command = (cmd_size > 0U) &&
+			held_command_active && !dma_flush_requested &&
+			isRetainedContinuousCommand(stim_queue);
+
+	if (replace_held_command)
+	{
+		/* The retained command is already represented by the active DMA ring.
+		 * Drop it so the replacement is the next command used after the flush.
+		 */
+		stim_queue->head = stim_queue->tail;
+		stim_queue->count = 0U;
+		stim_queue->remainingSpace = MAX_CMD_LENGTH;
+	}
 
 	if (cmd_size > stim_queue->remainingSpace)
 	{
@@ -204,6 +228,10 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio,
 			(stim_queue->tail + cmd_size) % MAX_CMD_LENGTH;
 	stim_queue->count += cmd_size;
 	stim_queue->remainingSpace = MAX_CMD_LENGTH - stim_queue->count;
+	if (replace_held_command && (cmd_size > 0U))
+	{
+		dma_flush_requested = true;
+	}
 	stim_queue->queue_lock = 0U;
 
 	return 1U;
@@ -225,8 +253,7 @@ uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* mode_in, uint16_t* gpi
 		return 0U;
 	}
 
-	if ((stim_queue->count == 1U) &&
-			(stim_queue->modeArray[stim_queue->head] == 1U))
+	if (isRetainedContinuousCommand(stim_queue))
 	{
 		*mode_in = stim_queue->modeArray[stim_queue->head];
 		*gpio_in = stim_queue->gpioArray[stim_queue->head];
@@ -275,7 +302,8 @@ static uint16_t amplitudeToDacCode(uint16_t amplitude)
 static bool buildNextEvent(stimCommandQueue* stim_queue,
 		uint32_t* dac_tick, uint32_t* output_tick, uint32_t* trigger_tick,
 		uint16_t* dac_code, uint32_t* gpio_bsrr,
-		uint8_t* stim_mode, bool* update_stim_mode)
+		uint8_t* stim_mode, bool* update_stim_mode,
+		bool* held_command)
 {
 	if (next_event_phase == NEXT_EVENT_FALL)
 	{
@@ -287,6 +315,7 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 		*gpio_bsrr = 0U;
 		*stim_mode = 0U;
 		*update_stim_mode = false;
+		*held_command = false;
 
 		last_dac_event_tick = *dac_tick;
 		last_output_event_tick = *output_tick;
@@ -303,6 +332,7 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 		uint16_t gpio;
 		uint16_t amplitude;
 		uint32_t period;
+		bool command_is_held = isRetainedContinuousCommand(stim_queue);
 
 		if (!popCommand(stim_queue, &mode, &gpio, &amplitude, &period))
 		{
@@ -324,6 +354,7 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 		*gpio_bsrr = gpioMaskToBsrr(gpio);
 		*stim_mode = mode;
 		*update_stim_mode = true;
+		*held_command = command_is_held;
 
 		last_dac_event_tick = *dac_tick;
 		last_output_event_tick = *output_tick;
@@ -354,11 +385,12 @@ static bool fillDmaRange(stimCommandQueue* stim_queue,
 		uint32_t gpio_bsrr;
 		uint8_t stim_mode;
 		bool update_stim_mode;
+		bool held_command;
 
 		if (!buildNextEvent(stim_queue, &dac_dma_ticks[i],
 				&output_dma_ticks[i], &trigger_dma_ticks[i],
 				&dac_dma_codes[i], &gpio_bsrr,
-				&stim_mode, &update_stim_mode))
+				&stim_mode, &update_stim_mode, &held_command))
 		{
 			uint32_t parked_dac_tick = last_dac_event_tick - 1U;
 			uint32_t parked_output_tick = last_output_event_tick - 1U;
@@ -374,6 +406,7 @@ static bool fillDmaRange(stimCommandQueue* stim_queue,
 				gpio_bsrr_values[park] = 0U;
 				stim_mode_values[park] = 0U;
 				stim_mode_updates[park] = false;
+				held_command_events[park] = false;
 			}
 
 			stop_planned = true;
@@ -384,6 +417,7 @@ static bool fillDmaRange(stimCommandQueue* stim_queue,
 		gpio_bsrr_values[i] = gpio_bsrr;
 		stim_mode_values[i] = stim_mode;
 		stim_mode_updates[i] = update_stim_mode;
+		held_command_events[i] = held_command;
 	}
 
 	return true;
@@ -398,6 +432,7 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 	uint32_t first_gpio_value;
 	uint8_t first_mode;
 	bool update_first_mode;
+	bool first_held;
 
 	next_rise_tick =
 			__HAL_TIM_GET_COUNTER(&htim2) + START_MARGIN_US;
@@ -406,7 +441,7 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 
 	if (!buildNextEvent(stim_queue, &first_dac_tick, &first_output_tick,
 			&first_trigger_tick, &first_dac_code, &first_gpio_value,
-			&first_mode, &update_first_mode))
+			&first_mode, &update_first_mode, &first_held))
 	{
 		return HAL_OK;
 	}
@@ -425,6 +460,7 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, first_trigger_tick);
 	first_gpio_bsrr = first_gpio_value;
 	first_stim_mode = first_mode;
+	first_command_held = first_held;
 	first_output_event_pending = true;
 	output_event_index = 0U;
 	active_stim_queue = stim_queue;
@@ -505,6 +541,9 @@ static void stopPulseDma(void)
 	first_output_event_pending = false;
 	output_event_index = 0U;
 	active_stim_queue = NULL;
+	held_command_active = false;
+	dma_flush_requested = false;
+	dma_flush_ready = false;
 }
 
 static bool tickReached(uint32_t now, uint32_t deadline)
@@ -514,6 +553,26 @@ static bool tickReached(uint32_t now, uint32_t deadline)
 
 void servicePulseDma(stimCommandQueue* stim_queue)
 {
+	if (dma_flush_ready)
+	{
+		stopPulseDma();
+
+		if ((stim_queue->count > 0U) &&
+				(startPulseDma(stim_queue) != HAL_OK))
+		{
+			Error_Handler();
+		}
+		return;
+	}
+
+	/* Once a replacement is queued, do not refill either circular half with
+	 * stale repetitions. The CC2 ISR will stop TIM2 on the next falling edge.
+	 */
+	if (dma_flush_requested)
+	{
+		return;
+	}
+
 	if (!pulse_dma_active)
 	{
 		if (stim_queue->count > 0U &&
@@ -561,15 +620,20 @@ void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef* htim)
 		{
 			active_stim_queue->stim_mode = first_stim_mode;
 		}
+		held_command_active = first_command_held;
 		first_output_event_pending = false;
 		return;
 	}
 
-	OUTPUT_GPIO_PORT->BSRR = gpio_bsrr_values[output_event_index];
-	if (stim_mode_updates[output_event_index] &&
+	uint16_t event_index = output_event_index;
+	bool rising_event = stim_mode_updates[event_index];
+
+	OUTPUT_GPIO_PORT->BSRR = gpio_bsrr_values[event_index];
+	if (rising_event &&
 			active_stim_queue != NULL)
 	{
-		active_stim_queue->stim_mode = stim_mode_values[output_event_index];
+		active_stim_queue->stim_mode = stim_mode_values[event_index];
+		held_command_active = held_command_events[event_index];
 	}
 	output_event_index++;
 
@@ -584,6 +648,16 @@ void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef* htim)
 	{
 		output_event_index = 0U;
 		dma_half_done_mask[1] |= DMA_DONE_OUTPUT_CC2;
+	}
+
+	if (!rising_event && dma_flush_requested)
+	{
+		/* All four fall events have occurred at this timer count. Freeze TIM2
+		 * with the trigger low; the main loop will abort and rebuild the DMAs.
+		 */
+		CLEAR_BIT(htim->Instance->CR1, TIM_CR1_CEN);
+		__HAL_TIM_DISABLE_IT(htim, TIM_IT_CC2);
+		dma_flush_ready = true;
 	}
 }
 
