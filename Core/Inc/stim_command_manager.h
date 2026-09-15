@@ -17,15 +17,16 @@ extern "C" {
 #include <stdint.h>
 
 
-// I want to allocate a max of 6kb of memory to the commands. At a stim rate of 200hz, 2byte encoding of amp, and float encoding of
-// time, one command is 6 bytes. This allows me space for 1000 commands, or 5 seconds of preloaded stimulation. That should be plenty.
-#define MAX_CMD_LENGTH 750
+// Keep the queued command arrays below 6 KB total. Each command contains a
+// mode, GPIO mask, amplitude, and period.
+#define MAX_CMD_LENGTH 500
 
 typedef struct{
-	uint8_t gpioArray[MAX_CMD_LENGTH]; //An array that holds a bit mask of each of the GPIO channels
-	uint16_t ampArray[MAX_CMD_LENGTH];
-	uint32_t periodArray[MAX_CMD_LENGTH];
-	float totalTime;
+	uint8_t modeArray[MAX_CMD_LENGTH]; // Per-command stimulation mode (0 single, 1 continuous)
+	uint16_t gpioArray[MAX_CMD_LENGTH]; // Per-command GPIO bit mask
+	uint16_t ampArray[MAX_CMD_LENGTH]; // Requested amplitude in mA
+	uint32_t periodArray[MAX_CMD_LENGTH]; // Time to the next pulse in microseconds
+	float totalTime; // In seconds
 	uint16_t remainingSpace;
 	uint16_t head;
 	uint16_t tail;
@@ -33,19 +34,20 @@ typedef struct{
 	uint8_t busy_flag;
 	uint8_t stop_flag;
 	uint8_t queue_lock;
-	uint8_t stim_mode;// 0 is single, 1 is continuous (continuous holds the last)
-	uint8_t last_gpio;
+	volatile uint8_t stim_mode; // Mode applied by the most recent rising event
+	uint8_t last_mode;
+	uint16_t last_gpio;
 	uint16_t last_amp;
 	uint32_t last_period;
 }stimCommandQueue;
 
 void stim_command_init(stimCommandQueue* stim_queue);
-uint8_t getLastGpio(stimCommandQueue* stim_queue, uint8_t* gpio_in);
+uint8_t getLastMode(stimCommandQueue* stim_queue, uint8_t* mode_in);
+uint8_t getLastGpio(stimCommandQueue* stim_queue, uint16_t* gpio_in);
 uint8_t getLastAmp(stimCommandQueue* stim_queue, uint16_t* amp_in);
 uint8_t getLastPeriod(stimCommandQueue* stim_queue, uint32_t* period_in);
-uint8_t changeStimMode(stimCommandQueue* stim_queue, uint8_t incoming_mode);
-uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* gpio, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
-uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* gpio_in, uint16_t* amp_in, uint32_t* time_in);
+uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
+uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* mode_in, uint16_t* gpio_in, uint16_t* amp_in, uint32_t* time_in);
 void servicePulseDma(stimCommandQueue *stim_queue);
 void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef* htim);
 void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef* htim);

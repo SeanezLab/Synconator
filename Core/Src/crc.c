@@ -13,7 +13,10 @@
 #include "data_tx_arrays.h"
 #include "structs.h"
 
-#define CMD_LENGTH 8 //length of a single command in bytes, 4 bytes for amp, 4 bytes for period
+/* Incoming command record: amplitude, period, GPIO mask, mode (all floats). */
+#define CMD_FIELD_COUNT 4U
+#define CMD_LENGTH      (CMD_FIELD_COUNT * sizeof(float))
+#define GPIO_MASK_MAX   0x01FFU
 
 // Fill in Below for each new protocol ///////////////////////////////////////////////////////////////////////
 char *payload_entries[] = {"status", "queue_length","queue_time","debug","frame"};
@@ -45,6 +48,24 @@ static inline uint8_t clamp_u8_from_f32(float x)
     else
     {
         return (uint8_t)v;
+    }
+}
+
+static inline uint16_t clamp_gpio_mask_from_f32(float x)
+{
+    int32_t v = (int32_t)(x + (x >= 0.0f ? 0.5f : -0.5f));
+
+    if (v < 0)
+    {
+        return 0U;
+    }
+    else if (v > GPIO_MASK_MAX)
+    {
+        return GPIO_MASK_MAX;
+    }
+    else
+    {
+        return (uint16_t)v;
     }
 }
 
@@ -223,78 +244,53 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 	{
 		// Valid packet
 		uint16_t payload_start = start + HEADER_BYTES + LEN_FIELD_BYTES;
+		if (payload_length < sizeof(float))
+		{
+			return;
+		}
+
 		float condition;
 		memcpy(&condition, &(rdg_struct->buffer[payload_start]), sizeof(condition));
-		// In future this will use a callback
-		if (condition == 0)
-		// Mode packet
-		{
-			float incoming_mode;
-			memcpy(&incoming_mode, &(rdg_struct->buffer[payload_start+sizeof(float)]), sizeof(float));
-//			pushCommand(&stim_queue, amp, period, cmd_size);
 
-			memcpy(queue_len, &incoming_mode, (size_t)sizeof(incoming_mode));
-		}
-		if (condition == 2)
-		// Single shot stim packet
+		if (condition == 2.0f)
 		{
-			uint16_t incoming_cmd_size = (payload_length - 4) / CMD_LENGTH;// TODO add a check if this doesn't evaluate to a whole number
-			uint8_t incoming_gpio[incoming_cmd_size];
-			uint32_t incoming_period[incoming_cmd_size];
+			uint16_t command_bytes = payload_length - (uint16_t)sizeof(float);
+			if ((command_bytes == 0U) || ((command_bytes % CMD_LENGTH) != 0U))
+			{
+				return;
+			}
+
+			uint16_t incoming_cmd_size = command_bytes / CMD_LENGTH;
+			uint8_t incoming_mode[incoming_cmd_size];
+			uint16_t incoming_gpio[incoming_cmd_size];
 			uint16_t incoming_amplitude[incoming_cmd_size];
+			uint32_t incoming_period[incoming_cmd_size];
 
 			for (uint16_t i = 0; i < incoming_cmd_size; i++)
 			{
-				// Setting our idxs
-				uint16_t amp_idx = 2*i;
-				uint16_t period_idx = 2*i+1;
-				// Add the amplitude into the array
+				size_t command_start = payload_start + sizeof(float) + ((size_t)i * CMD_LENGTH);
+
 				float current_amp;
-				memcpy(&current_amp, &(rdg_struct->buffer[payload_start+sizeof(float)+sizeof(float)*amp_idx]), sizeof(float));
+				memcpy(&current_amp, &(rdg_struct->buffer[command_start]), sizeof(float));
 				uint16_t amp_int = (uint16_t)current_amp;
 				incoming_amplitude[i] = amp_int;
-				// Add the period into the array
+
 				float current_period;
-				memcpy(&current_period, &(rdg_struct->buffer[payload_start+sizeof(float)+sizeof(float)*period_idx]), sizeof(float));
+				memcpy(&current_period, &(rdg_struct->buffer[command_start + sizeof(float)]), sizeof(float));
 				uint32_t period_int = (uint32_t)current_period;
 				incoming_period[i] = period_int;
-				// Placeholder for GPIO
-				incoming_gpio[i] = 0;
+
+				float current_gpio;
+				memcpy(&current_gpio, &(rdg_struct->buffer[command_start + 2U * sizeof(float)]), sizeof(float));
+				incoming_gpio[i] = clamp_gpio_mask_from_f32(current_gpio);
+
+				float current_mode;
+				memcpy(&current_mode, &(rdg_struct->buffer[command_start + 3U * sizeof(float)]), sizeof(float));
+				incoming_mode[i] = clamp_u8_from_f32(current_mode);
 			}
-			changeStimMode(&stim_queue, 0);
-			pushCommand(&stim_queue, incoming_gpio, incoming_amplitude, incoming_period, incoming_cmd_size);
+
+			pushCommand(&stim_queue, incoming_mode, incoming_gpio, incoming_amplitude, incoming_period, incoming_cmd_size);
 		}
-		if (condition == 3)
-		// continuous stim packet
-		{
-			uint16_t incoming_cmd_size = (payload_length - 4) / CMD_LENGTH;// TODO add a check if this doesn't evaluate to a whole number
-			uint8_t incoming_gpio[incoming_cmd_size];
-			uint32_t incoming_period[incoming_cmd_size];
-			uint16_t incoming_amplitude[incoming_cmd_size];
-
-			for (uint16_t i = 0; i < incoming_cmd_size; i++)
-			{
-				// Setting our idxs
-				uint16_t amp_idx = 2*i;
-				uint16_t period_idx = 2*i+1;
-				// Add the amplitude into the array
-				float current_amp;
-				memcpy(&current_amp, &(rdg_struct->buffer[payload_start+sizeof(float)+sizeof(float)*amp_idx]), sizeof(float));
-				uint16_t amp_int = (uint16_t)current_amp;
-				incoming_amplitude[i] = amp_int;
-				// Add the period into the array
-				float current_period;
-				memcpy(&current_period, &(rdg_struct->buffer[payload_start+sizeof(float)+sizeof(float)*period_idx]), sizeof(float));
-				uint32_t period_int = (uint32_t)current_period;
-				incoming_period[i] = period_int;
-				// Placeholder for GPIO
-								incoming_gpio[i] = 0;
-			}
-			changeStimMode(&stim_queue, 1);
-			pushCommand(&stim_queue, incoming_gpio, incoming_amplitude, incoming_period, incoming_cmd_size);
-		}
-
-
 	}
 	else
 	{
