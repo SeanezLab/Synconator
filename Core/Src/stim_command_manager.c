@@ -17,9 +17,9 @@
 #define DMA_EVENTS_PER_HALF   64U
 #define DMA_EVENT_COUNT       (2U * DMA_EVENTS_PER_HALF)
 
-#define PULSE_WIDTH_US        10U
-#define DAC_LEAD_US           5U
-#define START_MARGIN_US       1000U
+#define PULSE_WIDTH_US        20U
+#define DAC_LEAD_US           1000U
+#define START_MARGIN_US       2000U
 
 #define DMA_DONE_TIM2_CH1     (1U << 0)
 #define DMA_DONE_TIM2_CH3     (1U << 1)

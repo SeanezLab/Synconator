@@ -67,21 +67,16 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Sync_Pin D188_2_Pin D188_3_Pin D188_4_Pin
-                           D188_5_Pin D188_6_Pin D188_7_Pin D188_8_Pin */
-  GPIO_InitStruct.Pin = Sync_Pin|D188_2_Pin|D188_3_Pin|D188_4_Pin
-                          |D188_5_Pin|D188_6_Pin|D188_7_Pin|D188_8_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : D188_1_Pin */
-  GPIO_InitStruct.Pin = D188_1_Pin;
+  /*Configure GPIO pins : Sync_Pin D188_1_Pin D188_2_Pin D188_3_Pin
+                           D188_4_Pin D188_5_Pin D188_6_Pin D188_7_Pin
+                           D188_8_Pin */
+  GPIO_InitStruct.Pin = Sync_Pin|D188_1_Pin|D188_2_Pin|D188_3_Pin
+                          |D188_4_Pin|D188_5_Pin|D188_6_Pin|D188_7_Pin
+                          |D188_8_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(D188_1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pin : SMPS_PG_Pin */
   GPIO_InitStruct.Pin = SMPS_PG_Pin;
