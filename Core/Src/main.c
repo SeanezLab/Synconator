@@ -205,6 +205,8 @@ void SystemClock_Config(void)
 
 void run_com_loop(void)
 {
+	// Increment our connection watchdog timer
+	incrementWatchdogCounter(&stim_queue);
 //	Send our current state
 	increment_frame_counter();
 	memcpy(frame, &frame_counter, (size_t)sizeof(frame_counter));
@@ -214,10 +216,14 @@ void run_com_loop(void)
 	// Get the last stim period
 	float last_period = (float)stim_queue.last_period;
 	memcpy(queue_time, &last_period, sizeof(last_period));
+	// Get watchdog timer count
+	uint16_t watchdog_count = (uint16_t)stim_queue.watchdog_counter;
+	memcpy(watchdog_counter, &watchdog_count, sizeof(watchdog_count));
 
 
-	compile_data_sources(5,
-			  status, queue_len, queue_time, debug, frame);
+
+	compile_data_sources(6,
+			  status, queue_len, queue_time, debug, frame, watchdog_counter);
 	crc_uart_send_data(compiled_payload, &huart3);
 
 //	Check our inbox for any commands

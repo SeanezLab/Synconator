@@ -19,10 +19,10 @@
 #define GPIO_MASK_MAX   0x01FFU
 
 // Fill in Below for each new protocol ///////////////////////////////////////////////////////////////////////
-char *payload_entries[] = {"status", "queue_length","queue_time","debug","frame"};
+char *payload_entries[] = {"status", "queue_length","queue_time","debug","frame", "watchdog"};
 
 // Length of each entry, in bytes
-uint16_t payload_length_key[] = {1, 4, 4, 1, 1};
+uint16_t payload_length_key[] = {1, 4, 4, 1, 1, 2};
 
 // End of Fill out //////////////////////////////////////////////////////////////////////////////////////////
 
@@ -262,6 +262,10 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 			if (command == 1.0f)
 			{
 				stim_queue.clear_flag = 1;
+			}
+			else if (command == 2.0f)
+			{
+				stim_queue.watchdog_counter = 0;
 			}
 		}
 

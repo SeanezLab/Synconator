@@ -25,6 +25,7 @@ extern uint8_t queue_time[];
 extern uint8_t debug[];
 // Debugging transmits
 extern uint8_t frame[];
+extern uint8_t watchdog_counter[];
 
 
 

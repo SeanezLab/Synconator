@@ -40,9 +40,11 @@ typedef struct{
 	uint16_t last_gpio;
 	uint16_t last_amp;
 	uint32_t last_period;
+	uint16_t watchdog_counter;
 }stimCommandQueue;
 
 void stim_command_init(stimCommandQueue* stim_queue);
+void incrementWatchdogCounter(stimCommandQueue* stim_queue);
 uint8_t getLastMode(stimCommandQueue* stim_queue, uint8_t* mode_in);
 uint8_t getLastGpio(stimCommandQueue* stim_queue, uint16_t* gpio_in);
 uint8_t getLastAmp(stimCommandQueue* stim_queue, uint16_t* amp_in);

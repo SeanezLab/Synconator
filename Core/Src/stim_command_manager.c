@@ -13,6 +13,7 @@
 #include <string.h>
 #include <stdbool.h>
 
+#define WATCHDOG_COUNTER_MAX 200U
 #define EVENTS_PER_PULSE      2U
 #define DMA_EVENTS_PER_HALF   64U
 #define DMA_EVENT_COUNT       (2U * DMA_EVENTS_PER_HALF)
@@ -155,6 +156,17 @@ void stim_command_init(stimCommandQueue* stim_queue)
 	stim_queue->last_gpio = 0;
 	stim_queue->last_amp = 0;
 	stim_queue->last_period = 0;
+	stim_queue-> watchdog_counter = 0;
+}
+
+void incrementWatchdogCounter(stimCommandQueue* stim_queue)
+{
+	stim_queue->watchdog_counter++;
+
+	if (stim_queue->watchdog_counter >= WATCHDOG_COUNTER_MAX)
+	{
+		stim_queue->clear_flag = 1;
+	}
 }
 
 uint8_t getLastMode(stimCommandQueue* stim_queue, uint8_t* mode_in)
@@ -499,6 +511,12 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
 	output_event_index = 0U;
 	active_stim_queue = stim_queue;
 
+	/* A queue-empty stop leaves the DAC running without a trigger so zero can
+	 * reach the output. Restore TIM2 triggering before seeding a new sequence.
+	 */
+	(void)HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
+	MODIFY_REG(hdac1.Instance->CR, DAC_CR_TSEL1 | DAC_CR_TEN1,
+			DAC_TRIGGER_T2_TRGO);
 	if (HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1,
 			DAC_ALIGN_12B_R, first_dac_code) != HAL_OK)
 	{
@@ -565,11 +583,20 @@ static void stopPulseDma(bool reset_dac)
 	(void)HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
 	if (reset_dac)
 	{
+		/* With external triggering disabled, a DHR write is transferred to
+		 * the output without requiring another TIM2 event.
+		 */
+		MODIFY_REG(hdac1.Instance->CR, DAC_CR_TSEL1 | DAC_CR_TEN1,
+				DAC_TRIGGER_NONE);
+		(void)HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
 		(void)HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1,
 				DAC_ALIGN_12B_R, 0U);
 		scheduled_dac_code = 0U;
 	}
-	(void)HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+	else
+	{
+		(void)HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+	}
 
 	dma_half_done_mask[0] = 0U;
 	dma_half_done_mask[1] = 0U;

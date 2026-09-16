@@ -18,5 +18,5 @@ uint8_t queue_time[4];
 uint8_t debug[1];
 // Debugging transmits
 uint8_t frame[1];
-
+uint8_t watchdog_counter[2];
 
