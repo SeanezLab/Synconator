@@ -23,8 +23,8 @@
 /* USER CODE BEGIN 0 */
 uint8_t rx_dma_buffer[RX_DMA_SIZE];
 volatile uint8_t  huart3_tx_complete = 1;
-volatile bool got_msg = false;
-volatile uint16_t msg_size = 0;
+static volatile bool huart3_rx_data_pending = false;
+static volatile uint16_t huart3_rx_write_position = 0U;
 /* USER CODE END 0 */
 
 UART_HandleTypeDef huart3;
@@ -205,6 +205,29 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 
 }
 
+bool huart3_rx_take_write_position(uint16_t* write_position)
+{
+	if (write_position == NULL)
+	{
+		return false;
+	}
+
+	uint32_t primask = __get_PRIMASK();
+	__disable_irq();
+	bool data_pending = huart3_rx_data_pending;
+	if (data_pending)
+	{
+		*write_position = huart3_rx_write_position;
+		huart3_rx_data_pending = false;
+	}
+	if (primask == 0U)
+	{
+		__enable_irq();
+	}
+
+	return data_pending;
+}
+
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
 {
     if (huart->Instance != USART3)
@@ -212,26 +235,15 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
         return;
     }
 
-    // Get the count of the bytes
-	static uint16_t rem_p = RX_DMA_SIZE;
-
-	uint16_t remaining = __HAL_DMA_GET_COUNTER(huart3.hdmarx);
-	uint16_t received;
-
-	if (rem_p >= remaining)
+	/* In circular Receive-to-Idle mode, size is the DMA producer position,
+	 * not the number of bytes in this callback. Keeping the latest position
+	 * allows the main loop to consume every byte even if callbacks coalesce.
+	 */
+	if (size <= RX_DMA_SIZE)
 	{
-		received = rem_p - remaining;
+		huart3_rx_write_position = size;
+		huart3_rx_data_pending = true;
 	}
-	else
-	{
-		received = rem_p + RX_DMA_SIZE - remaining;
-	}
-
-
-
-	rem_p = remaining;
-	msg_size = received;
-	got_msg = 1;
 
 
 //    // Required when DMA is configured in Normal mode.
@@ -250,26 +262,9 @@ void huart3_RTO_handler(void)
 			// Clear the timeout flag
 			__HAL_UART_CLEAR_FLAG(&huart3, UART_FLAG_IDLE);
 
-			// Get the count of the bytes
-			static uint16_t rem_p = RX_DMA_SIZE;
-
 			uint16_t remaining = __HAL_DMA_GET_COUNTER(huart3.hdmarx);
-			uint16_t received;
-
-			if (rem_p >= remaining)
-			{
-				received = rem_p - remaining;
-			}
-			else
-			{
-				received = rem_p + RX_DMA_SIZE - remaining;
-			}
-
-
-
-			rem_p = remaining;
-			msg_size = received;
-			got_msg = 1;
+			huart3_rx_write_position = RX_DMA_SIZE - remaining;
+			huart3_rx_data_pending = true;
 
 		}
 }

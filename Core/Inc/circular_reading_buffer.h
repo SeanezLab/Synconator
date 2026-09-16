@@ -27,7 +27,8 @@ typedef struct{
 }rdg_buf_struct;
 
 rdg_buf_struct* rdg_buf_init(uint16_t size); // Initializes the reading buffer
-void dma_to_rdg_buf(rdg_buf_struct* rdg_struct, uint8_t* dma_buffer, uint8_t msg_size); // After msg reception, reads the data from the DMA buffer to the reading buffer
+uint16_t dma_to_rdg_buf(rdg_buf_struct* rdg_struct, const uint8_t* dma_buffer,
+		uint16_t dma_size, uint16_t dma_write_position);
 void rdg_buf_echo(rdg_buf_struct* rdg_struct, UART_HandleTypeDef *huart); // Echoes what is currently in the reading buffer via the selected UART Channel
 void flush_buffer(rdg_buf_struct* rdg_struct); // After message handling, clears the reading buffer so that it is ready for the next set of data
 

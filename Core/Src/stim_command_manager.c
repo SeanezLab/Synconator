@@ -13,7 +13,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-#define WATCHDOG_COUNTER_MAX 200U
+#define WATCHDOG_COUNTER_MAX 400U
 #define EVENTS_PER_PULSE      2U
 #define DMA_EVENTS_PER_HALF   64U
 #define DMA_EVENT_COUNT       (2U * DMA_EVENTS_PER_HALF)

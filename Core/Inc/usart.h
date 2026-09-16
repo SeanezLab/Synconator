@@ -39,8 +39,6 @@ extern UART_HandleTypeDef huart3;
 extern uint8_t rx_dma_buffer[RX_DMA_SIZE];
 extern volatile uint8_t huart3_tx_complete;
 extern volatile uint8_t tx_dma_packet;
-extern volatile bool got_msg;
-extern volatile uint16_t msg_size;
 
 /* USER CODE END Private defines */
 
@@ -48,6 +46,7 @@ void MX_USART3_UART_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 void huart3_try_send(uint8_t* msg, uint16_t msg_size);
+bool huart3_rx_take_write_position(uint16_t* write_position);
 void huart3_RTO_handler(void);
 /* USER CODE END Prototypes */
 

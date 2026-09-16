@@ -42,6 +42,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define RX_ACCUMULATOR_SIZE (2U * RX_DMA_SIZE)
+
 // Buffer to hold rx data
 char buffer[50] = {0};
 uint8_t msg_rdy = 0;
@@ -92,7 +94,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  dma_reader = rdg_buf_init(RX_DMA_SIZE);
+  dma_reader = rdg_buf_init(RX_ACCUMULATOR_SIZE);
 
   /* USER CODE END Init */
 
@@ -227,12 +229,12 @@ void run_com_loop(void)
 	crc_uart_send_data(compiled_payload, &huart3);
 
 //	Check our inbox for any commands
-	if (got_msg == true)
+	uint16_t dma_write_position;
+	if (huart3_rx_take_write_position(&dma_write_position))
 	{
-	  dma_to_rdg_buf(dma_reader, rx_dma_buffer, msg_size);
-	  crc_uart_rcv_data(dma_reader, msg_size);
-	  flush_buffer(dma_reader);
-	  got_msg = false;
+		dma_to_rdg_buf(dma_reader, rx_dma_buffer, RX_DMA_SIZE,
+				dma_write_position);
+		crc_uart_rcv_data(dma_reader, dma_reader->tail);
 	}
 	com_loop_flag = 0;
 }

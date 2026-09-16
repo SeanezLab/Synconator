@@ -200,121 +200,172 @@ void crc_uart_send_data(const uint8_t* src,
 
 }
 
-// Parses incoming information. This will be the most variable amongst implementations if reusing this file on other projects.
-void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
+static void handle_valid_payload(const uint8_t* payload,
+		uint16_t payload_length)
 {
-	// Find the header if it exists.
-	uint8_t header[] = {0x55, 0xAA};
-	uint8_t* p_start = memmem(rdg_struct->buffer, length, header, sizeof(header));
-	// Center about the header if it exists.
-	if (p_start == NULL)
+	if (payload_length < sizeof(float))
 	{
-		// No header detected. For now, we will ignore the case when the header splits and accept loss of the cmd packet.
-		return;
-	}
-	size_t start = (size_t)(p_start - rdg_struct->buffer);
-	if (length < start + HEADER_BYTES + LEN_FIELD_BYTES)
-	{
-		// Not enough data for a full packet yet. Flush and wait for next loop. For now, we will do this all or nothing, where we get a complete
-		// uninterrupted packet, or we do nothing. If this fails we'll deal with the edge cases. We transmit just a few bytes so I think this is ok.
-		return;
-	}
-	// Pull out the payload length
-
-	uint16_t payload_length = (uint16_t)rdg_struct->buffer[start+HEADER_BYTES] | ((uint16_t)rdg_struct->buffer[start+HEADER_BYTES+1] << 8);
-	uint16_t frame_len = HEADER_BYTES + LEN_FIELD_BYTES + payload_length + CRC_BYTES;
-
-	// if we do not have enough for a full transmission, do nothing.
-	if (length < start + frame_len)
-	{
-		// Not a full packet. Discard the command.
 		return;
 	}
 
-	// Lets calculate the check sum
-	uint8_t frame[frame_len];
-	memcpy(frame, &(rdg_struct->buffer[start]), frame_len);
-	uint16_t crc_rx = (uint16_t)rdg_struct->buffer[start + HEADER_BYTES + LEN_FIELD_BYTES + payload_length] \
-			| ((uint16_t)rdg_struct->buffer[start + HEADER_BYTES + LEN_FIELD_BYTES + payload_length + 1] << 8);
-	// CRC is over length + payload
-	uint16_t crc_calc = crc16_ccitt(&(rdg_struct->buffer[start + HEADER_BYTES]), frame_len- (HEADER_BYTES + CRC_BYTES));
-
-	// If the packet is valid, handle appropriately
-	if (crc_rx == crc_calc)
+	float condition;
+	memcpy(&condition, payload, sizeof(condition));
+	if (condition == 1.0f)
 	{
-		// Valid packet
-		uint16_t payload_start = start + HEADER_BYTES + LEN_FIELD_BYTES;
-		if (payload_length < sizeof(float))
+		if (payload_length != (2U * sizeof(float)))
 		{
 			return;
 		}
 
-		float condition;
-		memcpy(&condition, &(rdg_struct->buffer[payload_start]), sizeof(condition));
-		if (condition == 1.0f)
+		float command;
+		memcpy(&command, payload + sizeof(float), sizeof(command));
+		if (command == 1.0f)
 		{
-			if (payload_length != (2U * sizeof(float)))
-			{
-			    return;
-			}
-			float command;
-			memcpy(&command, &(rdg_struct->buffer[payload_start+sizeof(float)]), sizeof(float));
-			if (command == 1.0f)
-			{
-				stim_queue.clear_flag = 1;
-			}
-			else if (command == 2.0f)
-			{
-				stim_queue.watchdog_counter = 0;
-			}
+			stim_queue.clear_flag = 1;
 		}
-
-		else if (condition == 2.0f)
+		else if (command == 2.0f)
 		{
-			uint16_t command_bytes = payload_length - (uint16_t)sizeof(float);
-			if ((command_bytes == 0U) || ((command_bytes % CMD_LENGTH) != 0U))
-			{
-				return;
-			}
-
-			uint16_t incoming_cmd_size = command_bytes / CMD_LENGTH;
-			uint8_t incoming_mode[incoming_cmd_size];
-			uint16_t incoming_gpio[incoming_cmd_size];
-			uint16_t incoming_amplitude[incoming_cmd_size];
-			uint32_t incoming_period[incoming_cmd_size];
-
-			for (uint16_t i = 0; i < incoming_cmd_size; i++)
-			{
-				size_t command_start = payload_start + sizeof(float) + ((size_t)i * CMD_LENGTH);
-
-				float current_amp;
-				memcpy(&current_amp, &(rdg_struct->buffer[command_start]), sizeof(float));
-				uint16_t amp_int = (uint16_t)current_amp;
-				incoming_amplitude[i] = amp_int;
-
-				float current_period;
-				memcpy(&current_period, &(rdg_struct->buffer[command_start + sizeof(float)]), sizeof(float));
-				uint32_t period_int = (uint32_t)current_period;
-				incoming_period[i] = period_int;
-
-				float current_gpio;
-				memcpy(&current_gpio, &(rdg_struct->buffer[command_start + 2U * sizeof(float)]), sizeof(float));
-				incoming_gpio[i] = clamp_gpio_mask_from_f32(current_gpio);
-
-				float current_mode;
-				memcpy(&current_mode, &(rdg_struct->buffer[command_start + 3U * sizeof(float)]), sizeof(float));
-				incoming_mode[i] = clamp_u8_from_f32(current_mode);
-			}
-
-			pushCommand(&stim_queue, incoming_mode, incoming_gpio, incoming_amplitude, incoming_period, incoming_cmd_size);
+			stim_queue.watchdog_counter = 0;
 		}
+		return;
 	}
-	else
+
+	if (condition != 2.0f)
 	{
-		uint8_t crc_fail = 1;
+		return;
 	}
 
+	uint16_t command_bytes = payload_length - (uint16_t)sizeof(float);
+	if ((command_bytes == 0U) || ((command_bytes % CMD_LENGTH) != 0U))
+	{
+		return;
+	}
 
-	return;
+	uint16_t incoming_cmd_size = command_bytes / CMD_LENGTH;
+	uint8_t incoming_mode[incoming_cmd_size];
+	uint16_t incoming_gpio[incoming_cmd_size];
+	uint16_t incoming_amplitude[incoming_cmd_size];
+	uint32_t incoming_period[incoming_cmd_size];
 
+	for (uint16_t i = 0U; i < incoming_cmd_size; i++)
+	{
+		size_t command_start = sizeof(float) + ((size_t)i * CMD_LENGTH);
+
+		float current_amp;
+		memcpy(&current_amp, payload + command_start, sizeof(current_amp));
+		incoming_amplitude[i] = (uint16_t)current_amp;
+
+		float current_period;
+		memcpy(&current_period, payload + command_start + sizeof(float),
+				sizeof(current_period));
+		incoming_period[i] = (uint32_t)current_period;
+
+		float current_gpio;
+		memcpy(&current_gpio, payload + command_start + 2U * sizeof(float),
+				sizeof(current_gpio));
+		incoming_gpio[i] = clamp_gpio_mask_from_f32(current_gpio);
+
+		float current_mode;
+		memcpy(&current_mode, payload + command_start + 3U * sizeof(float),
+				sizeof(current_mode));
+		incoming_mode[i] = clamp_u8_from_f32(current_mode);
+	}
+
+	pushCommand(&stim_queue, incoming_mode, incoming_gpio,
+			incoming_amplitude, incoming_period, incoming_cmd_size);
+}
+
+/* Process every complete frame and retain a trailing partial frame for the
+ * next DMA receive event.
+ */
+void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
+{
+	static const uint8_t header[] = {0x55, 0xAA};
+
+	if (rdg_struct == NULL)
+	{
+		return;
+	}
+	if (length > rdg_struct->tail)
+	{
+		length = rdg_struct->tail;
+	}
+
+	size_t search_offset = 0U;
+	size_t keep_from = length;
+	while (search_offset < length)
+	{
+		uint8_t* p_start = memmem(rdg_struct->buffer + search_offset,
+				length - search_offset, header, sizeof(header));
+		if (p_start == NULL)
+		{
+			/* Preserve a possible first header byte split across callbacks. */
+			if (length > 0U && rdg_struct->buffer[length - 1U] == header[0])
+			{
+				keep_from = length - 1U;
+			}
+			else
+			{
+				keep_from = length;
+			}
+			break;
+		}
+
+		size_t start = (size_t)(p_start - rdg_struct->buffer);
+		if (length - start < HEADER_BYTES + LEN_FIELD_BYTES)
+		{
+			keep_from = start;
+			break;
+		}
+
+		uint16_t payload_length =
+				(uint16_t)rdg_struct->buffer[start + HEADER_BYTES] |
+				((uint16_t)rdg_struct->buffer[start + HEADER_BYTES + 1U] << 8U);
+		size_t frame_length = HEADER_BYTES + LEN_FIELD_BYTES +
+				(size_t)payload_length + CRC_BYTES;
+
+		/* An advertised frame larger than the accumulator cannot be valid.
+		 * Advance one byte and search for the next header instead of blocking.
+		 */
+		if (frame_length > rdg_struct->buf_size)
+		{
+			search_offset = start + 1U;
+			continue;
+		}
+		if (length - start < frame_length)
+		{
+			keep_from = start;
+			break;
+		}
+
+		size_t crc_position = start + HEADER_BYTES + LEN_FIELD_BYTES +
+				payload_length;
+		uint16_t crc_rx = (uint16_t)rdg_struct->buffer[crc_position] |
+				((uint16_t)rdg_struct->buffer[crc_position + 1U] << 8U);
+		uint16_t crc_calc = crc16_ccitt(
+				&rdg_struct->buffer[start + HEADER_BYTES],
+				LEN_FIELD_BYTES + payload_length);
+
+		if (crc_rx == crc_calc)
+		{
+			handle_valid_payload(
+					&rdg_struct->buffer[start + HEADER_BYTES + LEN_FIELD_BYTES],
+					payload_length);
+			search_offset = start + frame_length;
+			keep_from = search_offset;
+		}
+		else
+		{
+			/* Resynchronize without trusting the corrupt frame's length. */
+			search_offset = start + 1U;
+		}
+	}
+
+	uint16_t bytes_to_keep = length - (uint16_t)keep_from;
+	if (bytes_to_keep > 0U && keep_from > 0U)
+	{
+		memmove(rdg_struct->buffer, rdg_struct->buffer + keep_from,
+				bytes_to_keep);
+	}
+	rdg_struct->tail = bytes_to_keep;
 }
