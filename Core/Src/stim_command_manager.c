@@ -73,6 +73,9 @@ static stimCommandQueue* volatile active_stim_queue = NULL;
 static volatile bool held_command_active = false;
 static volatile bool dma_flush_requested = false;
 static volatile bool dma_flush_ready = false;
+static volatile bool replacement_flush_requested = false;
+static volatile bool replacement_rise_tick_valid = false;
+static volatile uint32_t replacement_rise_tick = 0U;
 
 static PulseEventPhase next_event_phase = NEXT_EVENT_RISE;
 static uint32_t next_rise_tick = 0U;
@@ -210,6 +213,7 @@ uint8_t clearStimCommands(stimCommandQueue* stim_queue)
 	if (pulse_dma_active)
 	{
 		dma_flush_requested = true;
+		replacement_flush_requested = false;
 	}
 
 	stim_queue->queue_lock = 0U;
@@ -258,6 +262,7 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio,
 	if (replace_held_command && (cmd_size > 0U))
 	{
 		dma_flush_requested = true;
+		replacement_flush_requested = true;
 	}
 	stim_queue->queue_lock = 0U;
 
@@ -452,7 +457,8 @@ static bool fillDmaRange(stimCommandQueue* stim_queue,
 	return true;
 }
 
-static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
+static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
+		uint32_t first_rise_tick)
 {
 	uint32_t first_dac_tick;
 	uint32_t first_output_tick;
@@ -463,8 +469,7 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 	bool update_first_mode;
 	bool first_held;
 
-	next_rise_tick =
-			__HAL_TIM_GET_COUNTER(&htim2) + START_MARGIN_US;
+	next_rise_tick = first_rise_tick;
 	next_event_phase = NEXT_EVENT_RISE;
 	stop_planned = false;
 
@@ -577,6 +582,8 @@ static void stopPulseDma(bool reset_dac)
 	held_command_active = false;
 	dma_flush_requested = false;
 	dma_flush_ready = false;
+	replacement_flush_requested = false;
+	replacement_rise_tick_valid = false;
 }
 
 static bool tickReached(uint32_t now, uint32_t deadline)
@@ -596,12 +603,24 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 	}
 	if (dma_flush_ready)
 	{
+		bool use_replacement_tick = replacement_rise_tick_valid &&
+				(stim_queue->count > 0U);
+		uint32_t first_rise_tick = replacement_rise_tick;
+
 		stopPulseDma(stim_queue->count == 0U);
 
-		if ((stim_queue->count > 0U) &&
-				(startPulseDma(stim_queue) != HAL_OK))
+		if (stim_queue->count > 0U)
 		{
-			Error_Handler();
+			if (!use_replacement_tick)
+			{
+				first_rise_tick = __HAL_TIM_GET_COUNTER(&htim2) +
+						START_MARGIN_US;
+			}
+
+			if (startPulseDma(stim_queue, first_rise_tick) != HAL_OK)
+			{
+				Error_Handler();
+			}
 		}
 		return;
 	}
@@ -628,7 +647,9 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 	if (!pulse_dma_active)
 	{
 		if (stim_queue->count > 0U &&
-				startPulseDma(stim_queue) != HAL_OK)
+				startPulseDma(stim_queue,
+						__HAL_TIM_GET_COUNTER(&htim2) +
+						START_MARGIN_US) != HAL_OK)
 		{
 			Error_Handler();
 		}
@@ -704,6 +725,20 @@ void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef* htim)
 
 	if (!rising_event && dma_flush_requested)
 	{
+		/* The next entry is the held command's already-scheduled rising edge.
+		 * Preserve it so a replacement observes the full original period.
+		 */
+		if (replacement_flush_requested && active_stim_queue != NULL &&
+				active_stim_queue->count > 0U)
+		{
+			replacement_rise_tick = output_dma_ticks[output_event_index];
+			replacement_rise_tick_valid = true;
+		}
+		else
+		{
+			replacement_rise_tick_valid = false;
+		}
+
 		/* All four fall events have occurred at this timer count. Freeze TIM2
 		 * with the trigger low; the main loop will abort and rebuild the DMAs.
 		 */
