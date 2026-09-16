@@ -80,6 +80,7 @@ static uint32_t current_fall_tick = 0U;
 static uint32_t last_dac_event_tick = 0U;
 static uint32_t last_output_event_tick = 0U;
 static uint32_t last_trigger_event_tick = 0U;
+static uint16_t scheduled_dac_code = 0U;
 
 /* Event zero is not in the circular arrays, so its software values are kept here. */
 static volatile uint32_t first_gpio_bsrr = 0U;
@@ -336,7 +337,8 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 		*dac_tick = current_fall_tick;
 		*output_tick = current_fall_tick;
 		*trigger_tick = current_fall_tick;
-		*dac_code = 0U;
+		/* Keep the analog command applied between trigger pulses. */
+		*dac_code = scheduled_dac_code;
 		/* GPIO modes persist between pulses. A zero BSRR write is a no-op. */
 		*gpio_bsrr = 0U;
 		*stim_mode = 0U;
@@ -376,7 +378,8 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 		*dac_tick = rise_tick - DAC_LEAD_US;
 		*output_tick = rise_tick;
 		*trigger_tick = rise_tick;
-		*dac_code = amplitudeToDacCode(amplitude);
+		scheduled_dac_code = amplitudeToDacCode(amplitude);
+		*dac_code = scheduled_dac_code;
 		*gpio_bsrr = gpioMaskToBsrr(gpio);
 		*stim_mode = mode;
 		*update_stim_mode = true;
@@ -543,7 +546,7 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue)
 	return HAL_OK;
 }
 
-static void stopPulseDma(void)
+static void stopPulseDma(bool reset_dac)
 {
 	__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC2);
 	(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_2);
@@ -551,12 +554,16 @@ static void stopPulseDma(void)
 	(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_3);
 	__HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_CC2);
 
-	/* The final real DAC event set the output to zero. Stop its circular DMA,
-	 * then re-enable the DAC without DMA so it continues driving zero.
+	/* Keep driving the current value across a stop/restart when another command
+	 * is waiting. A drained or explicitly cleared queue returns the DAC to zero.
 	 */
 	(void)HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-	(void)HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1,
-			DAC_ALIGN_12B_R, 0U);
+	if (reset_dac)
+	{
+		(void)HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1,
+				DAC_ALIGN_12B_R, 0U);
+		scheduled_dac_code = 0U;
+	}
 	(void)HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
 
 	dma_half_done_mask[0] = 0U;
@@ -589,7 +596,7 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 	}
 	if (dma_flush_ready)
 	{
-		stopPulseDma();
+		stopPulseDma(stim_queue->count == 0U);
 
 		if ((stim_queue->count > 0U) &&
 				(startPulseDma(stim_queue) != HAL_OK))
@@ -606,7 +613,7 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 	if (dma_flush_requested && stop_planned &&
 			tickReached(__HAL_TIM_GET_COUNTER(&htim2), stop_after_tick))
 	{
-		stopPulseDma();
+		stopPulseDma(stim_queue->count == 0U);
 		return;
 	}
 
@@ -632,7 +639,7 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 	{
 		if (tickReached(__HAL_TIM_GET_COUNTER(&htim2), stop_after_tick))
 		{
-			stopPulseDma();
+			stopPulseDma(stim_queue->count == 0U);
 		}
 		return;
 	}
