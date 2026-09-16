@@ -34,6 +34,7 @@ typedef struct{
 	uint8_t busy_flag;
 	uint8_t stop_flag;
 	uint8_t queue_lock;
+	uint8_t clear_flag;
 	volatile uint8_t stim_mode; // Mode applied by the most recent rising event
 	uint8_t last_mode;
 	uint16_t last_gpio;
@@ -46,6 +47,8 @@ uint8_t getLastMode(stimCommandQueue* stim_queue, uint8_t* mode_in);
 uint8_t getLastGpio(stimCommandQueue* stim_queue, uint16_t* gpio_in);
 uint8_t getLastAmp(stimCommandQueue* stim_queue, uint16_t* amp_in);
 uint8_t getLastPeriod(stimCommandQueue* stim_queue, uint32_t* period_in);
+/* Clears the queue immediately; active DMA stops at the next safe falling edge. */
+uint8_t clearStimCommands(stimCommandQueue* stim_queue);
 uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
 uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* mode_in, uint16_t* gpio_in, uint16_t* amp_in, uint32_t* time_in);
 void servicePulseDma(stimCommandQueue *stim_queue);

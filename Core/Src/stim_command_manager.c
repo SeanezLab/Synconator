@@ -126,20 +126,26 @@ static bool isRetainedContinuousCommand(const stimCommandQueue* stim_queue)
 			(stim_queue->modeArray[stim_queue->head] == 1U);
 }
 
+static void resetQueuedCommands(stimCommandQueue* stim_queue)
+{
+	stim_queue->totalTime = 0.0f;
+	stim_queue->remainingSpace = MAX_CMD_LENGTH;
+	stim_queue->head = 0U;
+	stim_queue->tail = 0U;
+	stim_queue->count = 0U;
+}
+
 void stim_command_init(stimCommandQueue* stim_queue)
 {
 	memset(stim_queue->modeArray, 0, sizeof(stim_queue->modeArray));
 	memset(stim_queue->gpioArray, 0, sizeof(stim_queue->gpioArray));
 	memset(stim_queue->ampArray, 0, sizeof(stim_queue->ampArray));
 	memset(stim_queue->periodArray, 0, sizeof(stim_queue->periodArray));
-	stim_queue->totalTime = 0;
-	stim_queue->remainingSpace = MAX_CMD_LENGTH;
-	stim_queue->count = 0;
-	stim_queue->head = 0;
-	stim_queue->tail = 0;
+	resetQueuedCommands(stim_queue);
 	stim_queue->busy_flag = 0;
 	stim_queue->stop_flag = 0;
 	stim_queue->queue_lock = 0;
+	stim_queue->clear_flag = 0;
 	stim_queue->stim_mode = 0;
 	stim_queue->last_mode = 0;
 	stim_queue->last_gpio = 0;
@@ -187,6 +193,28 @@ uint8_t getLastPeriod(stimCommandQueue* stim_queue, uint32_t* period_in)
 	return 1U;
 }
 
+uint8_t clearStimCommands(stimCommandQueue* stim_queue)
+{
+	if (stim_queue->queue_lock == 1U)
+	{
+		return 0U;
+	}
+
+	stim_queue->queue_lock = 1U;
+	resetQueuedCommands(stim_queue);
+
+	/* The current pulse is allowed to finish. Its falling CC2 event freezes
+	 * TIM2, then servicePulseDma() aborts every stream without restarting.
+	 */
+	if (pulse_dma_active)
+	{
+		dma_flush_requested = true;
+	}
+
+	stim_queue->queue_lock = 0U;
+	return 1U;
+}
+
 uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio, uint16_t* amp,
 		uint32_t* period, uint16_t cmd_size)
 {
@@ -205,9 +233,7 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio,
 		/* The retained command is already represented by the active DMA ring.
 		 * Drop it so the replacement is the next command used after the flush.
 		 */
-		stim_queue->head = stim_queue->tail;
-		stim_queue->count = 0U;
-		stim_queue->remainingSpace = MAX_CMD_LENGTH;
+		resetQueuedCommands(stim_queue);
 	}
 
 	if (cmd_size > stim_queue->remainingSpace)
@@ -553,6 +579,14 @@ static bool tickReached(uint32_t now, uint32_t deadline)
 
 void servicePulseDma(stimCommandQueue* stim_queue)
 {
+	if (stim_queue->clear_flag == 1)
+	{
+		uint8_t success = clearStimCommands(stim_queue);
+		if (success)
+		{
+			stim_queue->clear_flag = 0;
+		}
+	}
 	if (dma_flush_ready)
 	{
 		stopPulseDma();
@@ -562,6 +596,17 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 		{
 			Error_Handler();
 		}
+		return;
+	}
+
+	/* A finite queue normally stops just after its final falling event. If a
+	 * clear arrives in that narrow window, there is no future CC2 event to set
+	 * dma_flush_ready, so finish the stop here instead.
+	 */
+	if (dma_flush_requested && stop_planned &&
+			tickReached(__HAL_TIM_GET_COUNTER(&htim2), stop_after_tick))
+	{
+		stopPulseDma();
 		return;
 	}
 

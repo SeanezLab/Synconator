@@ -251,8 +251,21 @@ void crc_uart_rcv_data(rdg_buf_struct* rdg_struct, uint16_t length)
 
 		float condition;
 		memcpy(&condition, &(rdg_struct->buffer[payload_start]), sizeof(condition));
+		if (condition == 1.0f)
+		{
+			if (payload_length != (2U * sizeof(float)))
+			{
+			    return;
+			}
+			float command;
+			memcpy(&command, &(rdg_struct->buffer[payload_start+sizeof(float)]), sizeof(float));
+			if (command == 1.0f)
+			{
+				stim_queue.clear_flag = 1;
+			}
+		}
 
-		if (condition == 2.0f)
+		else if (condition == 2.0f)
 		{
 			uint16_t command_bytes = payload_length - (uint16_t)sizeof(float);
 			if ((command_bytes == 0U) || ((command_bytes % CMD_LENGTH) != 0U))
