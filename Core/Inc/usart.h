@@ -46,6 +46,8 @@ void MX_USART3_UART_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 void huart3_try_send(uint8_t* msg, uint16_t msg_size);
+HAL_StatusTypeDef huart3_rx_start(void);
+bool huart3_rx_recover(void);
 bool huart3_rx_take_write_position(uint16_t* write_position);
 void huart3_RTO_handler(void);
 /* USER CODE END Prototypes */

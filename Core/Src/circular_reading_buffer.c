@@ -91,6 +91,18 @@ void flush_buffer(rdg_buf_struct* rdg_struct){
 	rdg_struct->tail = 0;
 }
 
+/* Discard both a partial packet and any position saved from an old DMA run. */
+void rdg_buf_reset(rdg_buf_struct* rdg_struct)
+{
+	if (rdg_struct == NULL)
+	{
+		return;
+	}
+
+	rdg_struct->tail = 0U;
+	rdg_struct->dma_head = 0U;
+}
+
 // Initializes the reading buffer
 rdg_buf_struct* rdg_buf_init(uint16_t size){
 	rdg_buf_struct* rb = malloc(sizeof(rdg_buf_struct) + size);

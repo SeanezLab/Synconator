@@ -25,6 +25,7 @@ uint8_t rx_dma_buffer[RX_DMA_SIZE];
 volatile uint8_t  huart3_tx_complete = 1;
 static volatile bool huart3_rx_data_pending = false;
 static volatile uint16_t huart3_rx_write_position = 0U;
+static volatile bool huart3_rx_restart_requested = false;
 /* USER CODE END 0 */
 
 UART_HandleTypeDef huart3;
@@ -94,7 +95,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     */
     GPIO_InitStruct.Pin = GPIO_PIN_11;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -203,6 +204,89 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 	  huart3_tx_complete = 1;
   }
 
+}
+
+static void huart3_rx_reset_positions(void)
+{
+	uint32_t primask = __get_PRIMASK();
+	__disable_irq();
+	huart3_rx_write_position = 0U;
+	huart3_rx_data_pending = false;
+	if (primask == 0U)
+	{
+		__enable_irq();
+	}
+}
+
+HAL_StatusTypeDef huart3_rx_start(void)
+{
+	/* Clear state left by a framing/noise/overrun error before arming DMA. */
+	__HAL_UART_CLEAR_FLAG(&huart3,
+			UART_CLEAR_OREF | UART_CLEAR_NEF | UART_CLEAR_FEF |
+			UART_CLEAR_PEF | UART_CLEAR_IDLEF);
+	__HAL_UART_SEND_REQ(&huart3, UART_RXDATA_FLUSH_REQUEST);
+	huart3_rx_reset_positions();
+
+	uint32_t primask = __get_PRIMASK();
+	__disable_irq();
+	huart3_rx_restart_requested = false;
+	if (primask == 0U)
+	{
+		__enable_irq();
+	}
+
+	HAL_StatusTypeDef status = HAL_UARTEx_ReceiveToIdle_DMA(
+			&huart3, rx_dma_buffer, RX_DMA_SIZE);
+	if (status == HAL_OK)
+	{
+		/* IDLE supplies the producer position. The DMA stays circular, so its
+		 * half/full callbacks are unnecessary.
+		 */
+		__HAL_DMA_DISABLE_IT(huart3.hdmarx, DMA_IT_HT | DMA_IT_TC);
+	}
+	else
+	{
+		huart3_rx_restart_requested = true;
+	}
+
+	return status;
+}
+
+bool huart3_rx_recover(void)
+{
+	uint32_t primask = __get_PRIMASK();
+	__disable_irq();
+	bool restart_requested = huart3_rx_restart_requested;
+	if (restart_requested)
+	{
+		huart3_rx_restart_requested = false;
+	}
+	if (primask == 0U)
+	{
+		__enable_irq();
+	}
+
+	if (!restart_requested)
+	{
+		return false;
+	}
+
+	/* Keep recovery out of the IRQ callback. This also handles a partially
+	 * aborted DMA channel before starting a fresh circular reception.
+	 */
+	(void)HAL_UART_AbortReceive(&huart3);
+	return huart3_rx_start() == HAL_OK;
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+	if (huart->Instance == USART3)
+	{
+		/* The HAL has already ended the failed DMA reception. Restart it from
+		 * the main loop after the interrupt/abort path has returned.
+		 */
+		huart3_rx_restart_requested = true;
+	}
 }
 
 bool huart3_rx_take_write_position(uint16_t* write_position)

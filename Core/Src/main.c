@@ -123,11 +123,8 @@ int main(void)
 
 
 
-     // enabling receive to idle
-     HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rx_dma_buffer, RX_DMA_SIZE);
-     // Turn off DMA half-transfer + transfer-complete interupts
-     __HAL_DMA_DISABLE_IT(huart3.hdmarx, DMA_IT_HT);
-     __HAL_DMA_DISABLE_IT(huart3.hdmarx, DMA_IT_TC);
+     // Enable circular receive-to-idle. Failed starts are retried by run_com_loop().
+     (void)huart3_rx_start();
 
      // Init our command structures
      stim_command_init(&stim_queue);
@@ -209,6 +206,14 @@ void SystemClock_Config(void)
 
 void run_com_loop(void)
 {
+	/* A reconnect-time UART error aborts only RX DMA. Recover it here and
+	 * discard parser state associated with the old DMA run.
+	 */
+	if (huart3_rx_recover())
+	{
+		rdg_buf_reset(dma_reader);
+	}
+
 	// Increment our connection watchdog timer
 	incrementWatchdogCounter(&stim_queue);
 //	Send our current state
