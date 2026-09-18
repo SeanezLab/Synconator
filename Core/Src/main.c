@@ -241,8 +241,10 @@ void run_com_loop(void)
 	uint16_t dma_write_position;
 	if (huart3_rx_take_write_position(&dma_write_position))
 	{
+		HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
 		dma_to_rdg_buf(dma_reader, rx_dma_buffer, RX_DMA_SIZE, dma_write_position);
 		crc_uart_rcv_data(dma_reader, dma_reader->tail);
+		HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
 	}
 	com_loop_flag = 0;
 }

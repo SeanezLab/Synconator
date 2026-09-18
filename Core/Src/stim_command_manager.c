@@ -24,6 +24,8 @@
 #define PULSE_WIDTH_US        20U
 #define DAC_LEAD_US           1000U
 #define START_MARGIN_US       2000U
+#define LIVE_REARM_MARGIN_US  100U
+#define LIVE_COMPARE_MARGIN_US 5U
 
 #define DMA_DONE_TIM2_CH1     (1U << 0)
 #define DMA_DONE_TIM2_CH3     (1U << 1)
@@ -601,7 +603,7 @@ static HAL_StatusTypeDef armTimerDmaChannel(uint32_t channel,
 }
 
 static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
-		uint32_t first_rise_tick)
+		uint32_t first_rise_tick, bool keep_timebase_running)
 {
 	uint32_t first_dac_tick;
 	uint32_t first_output_tick;
@@ -613,9 +615,24 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
 	bool first_held;
 	bool first_dac_event;
 
-	/* The timer remains frozen while every DMA stream is prepared. */
-	CLEAR_BIT(htim2.Instance->CR1, TIM_CR1_CEN);
 	uint32_t timer_resume_tick = __HAL_TIM_GET_COUNTER(&htim2);
+	if (!keep_timebase_running)
+	{
+		/* Cold starts keep TIM2 frozen until every stream is armed. */
+		CLEAR_BIT(htim2.Instance->CR1, TIM_CR1_CEN);
+	}
+	else
+	{
+		/* Leave enough time to build and arm every stream without moving an
+		 * already-safe replacement timestamp.
+		 */
+		uint32_t earliest_rise_tick =
+				__HAL_TIM_GET_COUNTER(&htim2) + LIVE_REARM_MARGIN_US;
+		if (tickBefore(first_rise_tick, earliest_rise_tick))
+		{
+			first_rise_tick = earliest_rise_tick;
+		}
+	}
 
 	next_rise_tick = first_rise_tick;
 	next_event_phase = NEXT_EVENT_RISE;
@@ -640,9 +657,22 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
 	(void)fillDmaRange(stim_queue, 0U, EDGE_EVENT_COUNT,
 			0U, DAC_EVENT_COUNT);
 
-	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, first_dac_tick);
-	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, first_output_tick);
-	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, first_trigger_tick);
+	if (keep_timebase_running)
+	{
+		/* Arm against expired compare values. The real values are installed
+		 * together after every DMA stream is ready.
+		 */
+		uint32_t parked_tick = __HAL_TIM_GET_COUNTER(&htim2) - 1U;
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, parked_tick);
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, parked_tick);
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, parked_tick);
+	}
+	else
+	{
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, first_dac_tick);
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, first_output_tick);
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, first_trigger_tick);
+	}
 	first_gpio_bsrr = first_gpio_value;
 	first_stim_mode = first_mode;
 	first_command_held = first_held;
@@ -674,26 +704,47 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
 		return HAL_ERROR;
 	}
 
-	/* Each HAL start briefly enables TIM2. Park it just beyond the first DAC
-	 * tick so none of the real compares can occur during channel setup.
-	 */
-	uint32_t setup_tick = first_dac_tick + 1U;
-	if (armTimerDmaChannel(TIM_CHANNEL_1, dac_dma_ticks,
-			DAC_EVENT_COUNT, setup_tick) != HAL_OK)
+	if (keep_timebase_running)
 	{
-		return HAL_ERROR;
+		if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_1,
+				dac_dma_ticks, DAC_EVENT_COUNT) != HAL_OK)
+		{
+			return HAL_ERROR;
+		}
+		if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_3,
+				trigger_dma_ticks, EDGE_EVENT_COUNT) != HAL_OK)
+		{
+			return HAL_ERROR;
+		}
+		if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_2,
+				output_dma_ticks, EDGE_EVENT_COUNT) != HAL_OK)
+		{
+			return HAL_ERROR;
+		}
 	}
-
-	if (armTimerDmaChannel(TIM_CHANNEL_3, trigger_dma_ticks,
-			EDGE_EVENT_COUNT, setup_tick) != HAL_OK)
+	else
 	{
-		return HAL_ERROR;
-	}
+		/* Each HAL start briefly enables TIM2. Park it just beyond the first DAC
+		 * tick so none of the real compares can occur during channel setup.
+		 */
+		uint32_t setup_tick = first_dac_tick + 1U;
+		if (armTimerDmaChannel(TIM_CHANNEL_1, dac_dma_ticks,
+				DAC_EVENT_COUNT, setup_tick) != HAL_OK)
+		{
+			return HAL_ERROR;
+		}
 
-	if (armTimerDmaChannel(TIM_CHANNEL_2, output_dma_ticks,
-			EDGE_EVENT_COUNT, setup_tick) != HAL_OK)
-	{
-		return HAL_ERROR;
+		if (armTimerDmaChannel(TIM_CHANNEL_3, trigger_dma_ticks,
+				EDGE_EVENT_COUNT, setup_tick) != HAL_OK)
+		{
+			return HAL_ERROR;
+		}
+
+		if (armTimerDmaChannel(TIM_CHANNEL_2, output_dma_ticks,
+				EDGE_EVENT_COUNT, setup_tick) != HAL_OK)
+		{
+			return HAL_ERROR;
+		}
 	}
 	__HAL_DMA_DISABLE_IT(htim2.hdma[TIM_DMA_ID_CC2], DMA_IT_HT | DMA_IT_TC);
 
@@ -705,20 +756,63 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
 	__HAL_TIM_ENABLE_IT(&htim2, TIM_IT_CC2);
 
 	pulse_dma_active = true;
-	__HAL_TIM_SET_COUNTER(&htim2, timer_resume_tick);
-	__HAL_TIM_CLEAR_FLAG(&htim2,
-			TIM_FLAG_CC1 | TIM_FLAG_CC2 | TIM_FLAG_CC3);
-	SET_BIT(htim2.Instance->CR1, TIM_CR1_CEN);
+	if (keep_timebase_running)
+	{
+		uint32_t earliest_dac_tick =
+				__HAL_TIM_GET_COUNTER(&htim2) + LIVE_COMPARE_MARGIN_US;
+		if (tickBefore(first_dac_tick, earliest_dac_tick))
+		{
+			first_dac_tick = earliest_dac_tick;
+		}
+		if (tickBefore(first_trigger_tick, first_dac_tick))
+		{
+			first_dac_tick = first_trigger_tick;
+		}
+
+		__HAL_TIM_CLEAR_FLAG(&htim2,
+				TIM_FLAG_CC1 | TIM_FLAG_CC2 | TIM_FLAG_CC3);
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, first_output_tick);
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, first_trigger_tick);
+		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, first_dac_tick);
+	}
+	else
+	{
+		__HAL_TIM_SET_COUNTER(&htim2, timer_resume_tick);
+		__HAL_TIM_CLEAR_FLAG(&htim2,
+				TIM_FLAG_CC1 | TIM_FLAG_CC2 | TIM_FLAG_CC3);
+		SET_BIT(htim2.Instance->CR1, TIM_CR1_CEN);
+	}
 
 	return HAL_OK;
 }
 
-static void stopPulseDma(bool reset_dac)
+static void stopTimerDmaChannelKeepingCounter(uint32_t channel,
+		uint32_t dma_id, uint32_t dma_request)
+{
+	__HAL_TIM_DISABLE_DMA(&htim2, dma_request);
+	(void)HAL_DMA_Abort_IT(htim2.hdma[dma_id]);
+	TIM_CCxChannelCmd(htim2.Instance, channel, TIM_CCx_DISABLE);
+	TIM_CHANNEL_STATE_SET(&htim2, channel, HAL_TIM_CHANNEL_STATE_READY);
+}
+
+static void stopPulseDma(bool reset_dac, bool keep_timebase_running)
 {
 	__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC2);
-	(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_2);
-	(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_1);
-	(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_3);
+	if (keep_timebase_running)
+	{
+		stopTimerDmaChannelKeepingCounter(TIM_CHANNEL_2,
+				TIM_DMA_ID_CC2, TIM_DMA_CC2);
+		stopTimerDmaChannelKeepingCounter(TIM_CHANNEL_1,
+				TIM_DMA_ID_CC1, TIM_DMA_CC1);
+		stopTimerDmaChannelKeepingCounter(TIM_CHANNEL_3,
+				TIM_DMA_ID_CC3, TIM_DMA_CC3);
+	}
+	else
+	{
+		(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_2);
+		(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_1);
+		(void)HAL_TIM_OC_Stop_DMA(&htim2, TIM_CHANNEL_3);
+	}
 	__HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_CC2);
 
 	/* Keep driving the current value across a stop/restart when another command
@@ -778,7 +872,7 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 				(stim_queue->count > 0U);
 		uint32_t first_rise_tick = replacement_rise_tick;
 
-		stopPulseDma(stim_queue->count == 0U);
+		stopPulseDma(stim_queue->count == 0U, use_replacement_tick);
 
 		if (stim_queue->count > 0U)
 		{
@@ -788,7 +882,8 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 						START_MARGIN_US;
 			}
 
-			if (startPulseDma(stim_queue, first_rise_tick) != HAL_OK)
+			if (startPulseDma(stim_queue, first_rise_tick,
+					use_replacement_tick) != HAL_OK)
 			{
 				Error_Handler();
 			}
@@ -803,12 +898,12 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 	if (dma_flush_requested && stop_planned &&
 			tickReached(__HAL_TIM_GET_COUNTER(&htim2), stop_after_tick))
 	{
-		stopPulseDma(stim_queue->count == 0U);
+		stopPulseDma(stim_queue->count == 0U, false);
 		return;
 	}
 
 	/* Once a replacement is queued, do not refill either circular half with
-	 * stale repetitions. The CC2 ISR will stop TIM2 on the next falling edge.
+	 * stale repetitions. The CC2 ISR will request a rebuild on the next fall.
 	 */
 	if (dma_flush_requested)
 	{
@@ -820,7 +915,7 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 		if (stim_queue->count > 0U &&
 				startPulseDma(stim_queue,
 						__HAL_TIM_GET_COUNTER(&htim2) +
-						START_MARGIN_US) != HAL_OK)
+						START_MARGIN_US, false) != HAL_OK)
 		{
 			Error_Handler();
 		}
@@ -831,7 +926,7 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 	{
 		if (tickReached(__HAL_TIM_GET_COUNTER(&htim2), stop_after_tick))
 		{
-			stopPulseDma(stim_queue->count == 0U);
+			stopPulseDma(stim_queue->count == 0U, false);
 		}
 		return;
 	}
@@ -912,10 +1007,10 @@ void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef* htim)
 			replacement_rise_tick_valid = false;
 		}
 
-		/* All four fall events have occurred at this timer count. Freeze TIM2
-		 * with the trigger low; the main loop will abort and rebuild the DMAs.
+		/* All four fall events have occurred at this timer count. Leave TIM2's
+		 * timebase running with the trigger low; the service interrupt will
+		 * replace and rearm the DMA streams.
 		 */
-		CLEAR_BIT(htim->Instance->CR1, TIM_CR1_CEN);
 		__HAL_TIM_DISABLE_IT(htim, TIM_IT_CC2);
 		dma_flush_ready = true;
 	}
