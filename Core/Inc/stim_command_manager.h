@@ -19,7 +19,7 @@ extern "C" {
 
 // Keep the queued command arrays below 6 KB total. Each command contains a
 // mode, GPIO mask, amplitude, and period.
-#define MAX_CMD_LENGTH 500
+#define MAX_CMD_LENGTH 400
 
 typedef struct{
 	uint8_t modeArray[MAX_CMD_LENGTH]; // Per-command stimulation mode (0 single, 1 continuous)
@@ -53,6 +53,7 @@ uint8_t getLastPeriod(stimCommandQueue* stim_queue, uint32_t* period_in);
 uint8_t clearStimCommands(stimCommandQueue* stim_queue);
 uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio, uint16_t* amp, uint32_t* period, uint16_t cmd_size);
 uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* mode_in, uint16_t* gpio_in, uint16_t* amp_in, uint32_t* time_in);
+uint8_t disposeCommand(stimCommandQueue* stim_queue);
 void servicePulseDma(stimCommandQueue *stim_queue);
 void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef* htim);
 void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef* htim);

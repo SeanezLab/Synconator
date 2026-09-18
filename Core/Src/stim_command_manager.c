@@ -13,10 +13,13 @@
 #include <string.h>
 #include <stdbool.h>
 
-#define WATCHDOG_COUNTER_MAX 400U
-#define EVENTS_PER_PULSE      2U
-#define DMA_EVENTS_PER_HALF   64U
-#define DMA_EVENT_COUNT       (2U * DMA_EVENTS_PER_HALF)
+#define WATCHDOG_COUNTER_MAX 12000U
+#define EDGES_PER_PULSE        2U
+#define PULSES_PER_DMA_HALF    32U
+#define EDGE_EVENTS_PER_HALF   (EDGES_PER_PULSE * PULSES_PER_DMA_HALF)
+#define EDGE_EVENT_COUNT       (2U * EDGE_EVENTS_PER_HALF)
+#define DAC_EVENTS_PER_HALF    PULSES_PER_DMA_HALF
+#define DAC_EVENT_COUNT        (2U * DAC_EVENTS_PER_HALF)
 
 #define PULSE_WIDTH_US        20U
 #define DAC_LEAD_US           1000U
@@ -36,10 +39,6 @@
                                D188_3_Pin | D188_4_Pin | D188_5_Pin | \
                                D188_6_Pin | D188_7_Pin | D188_8_Pin)
 
-#if (DMA_EVENTS_PER_HALF % EVENTS_PER_PULSE) != 0U
-#error "Each circular DMA half must contain complete pulses"
-#endif
-
 typedef enum
 {
 	NEXT_EVENT_RISE,
@@ -50,14 +49,14 @@ typedef enum
  * These are DMA transfer values. Event zero is seeded directly into CCR1,
  * CCR2, CCR3, and the DAC DHR before the circular streams are started.
  */
-static uint32_t dac_dma_ticks[DMA_EVENT_COUNT];
-static uint32_t output_dma_ticks[DMA_EVENT_COUNT];
-static uint32_t trigger_dma_ticks[DMA_EVENT_COUNT];
-static uint16_t dac_dma_codes[DMA_EVENT_COUNT];
-static volatile uint32_t gpio_bsrr_values[DMA_EVENT_COUNT];
-static volatile uint8_t stim_mode_values[DMA_EVENT_COUNT];
-static volatile bool stim_mode_updates[DMA_EVENT_COUNT];
-static volatile bool held_command_events[DMA_EVENT_COUNT];
+static uint32_t dac_dma_ticks[DAC_EVENT_COUNT];
+static uint16_t dac_dma_codes[DAC_EVENT_COUNT];
+static uint32_t output_dma_ticks[EDGE_EVENT_COUNT];
+static uint32_t trigger_dma_ticks[EDGE_EVENT_COUNT];
+static volatile uint32_t gpio_bsrr_values[EDGE_EVENT_COUNT];
+static volatile uint8_t stim_mode_values[EDGE_EVENT_COUNT];
+static volatile bool stim_mode_updates[EDGE_EVENT_COUNT];
+static volatile bool held_command_events[EDGE_EVENT_COUNT];
 
 /*
  * Half zero is released by half-transfer callbacks; half one is released by
@@ -84,6 +83,7 @@ static uint32_t current_fall_tick = 0U;
 static uint32_t last_dac_event_tick = 0U;
 static uint32_t last_output_event_tick = 0U;
 static uint32_t last_trigger_event_tick = 0U;
+static uint32_t earliest_dac_event_tick = 0U;
 static uint16_t scheduled_dac_code = 0U;
 
 /* Event zero is not in the circular arrays, so its software values are kept here. */
@@ -328,6 +328,29 @@ uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* mode_in, uint16_t* gpi
 	return 1U;
 }
 
+uint8_t disposeCommand(stimCommandQueue* stim_queue)
+{
+	if (stim_queue->queue_lock == 1U)
+	{
+		return 0U;
+	}
+
+	stim_queue->queue_lock = 1U;
+
+	if (stim_queue->count == 0U)
+	{
+		stim_queue->queue_lock = 0U;
+		return 0U;
+	}
+
+	stim_queue->head = (stim_queue->head + 1U) % MAX_CMD_LENGTH;
+	stim_queue->count--;
+	stim_queue->remainingSpace = MAX_CMD_LENGTH - stim_queue->count;
+	stim_queue->queue_lock = 0U;
+
+	return 1U;
+}
+
 static uint16_t amplitudeToDacCode(uint16_t amplitude)
 {
 	if (amplitude > 4095U)
@@ -338,33 +361,61 @@ static uint16_t amplitudeToDacCode(uint16_t amplitude)
 	return amplitude;
 }
 
+static bool tickBefore(uint32_t tick, uint32_t reference)
+{
+	return (int32_t)(tick - reference) < 0;
+}
+
+/* Keep the DAC update after the preceding pulse and before this pulse. When
+ * the requested 1 ms lead is unavailable, use as much lead as remains without
+ * moving the trigger timestamp.
+ */
+static uint32_t dacTickForRise(uint32_t rise_tick)
+{
+	uint32_t dac_tick = rise_tick - DAC_LEAD_US;
+	uint32_t earliest_tick = earliest_dac_event_tick;
+	uint32_t schedule_tick = __HAL_TIM_GET_COUNTER(&htim2) + 1U;
+
+	if (tickBefore(earliest_tick, schedule_tick))
+	{
+		earliest_tick = schedule_tick;
+	}
+	if (tickBefore(dac_tick, earliest_tick))
+	{
+		dac_tick = earliest_tick;
+	}
+	if (tickBefore(rise_tick, dac_tick))
+	{
+		dac_tick = rise_tick;
+	}
+
+	return dac_tick;
+}
+
 /*
- * Generate one synchronized DAC/GPIO/mode/trigger event. A rising event
- * consumes one command. Its falling event is generated on the next call
- * without consuming another command.
+ * Generate one GPIO/mode/trigger edge. A rising edge consumes one command and
+ * also produces one DAC event. Falling edges do not touch the DAC.
  */
 static bool buildNextEvent(stimCommandQueue* stim_queue,
 		uint32_t* dac_tick, uint32_t* output_tick, uint32_t* trigger_tick,
 		uint16_t* dac_code, uint32_t* gpio_bsrr,
 		uint8_t* stim_mode, bool* update_stim_mode,
-		bool* held_command)
+		bool* held_command, bool* dac_event)
 {
 	if (next_event_phase == NEXT_EVENT_FALL)
 	{
-		*dac_tick = current_fall_tick;
 		*output_tick = current_fall_tick;
 		*trigger_tick = current_fall_tick;
-		/* Keep the analog command applied between trigger pulses. */
-		*dac_code = scheduled_dac_code;
 		/* GPIO modes persist between pulses. A zero BSRR write is a no-op. */
 		*gpio_bsrr = 0U;
 		*stim_mode = 0U;
 		*update_stim_mode = false;
 		*held_command = false;
+		*dac_event = false;
 
-		last_dac_event_tick = *dac_tick;
 		last_output_event_tick = *output_tick;
 		last_trigger_event_tick = *trigger_tick;
+		earliest_dac_event_tick = current_fall_tick;
 		next_event_phase = NEXT_EVENT_RISE;
 
 		return true;
@@ -384,15 +435,20 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 			return false;
 		}
 
-		if (period <= PULSE_WIDTH_US + DAC_LEAD_US)
+		if (period <= PULSE_WIDTH_US)
 		{
+			/* A retained continuous command was not removed by popCommand(). */
+			if (command_is_held)
+			{
+				disposeCommand(stim_queue);
+			}
 			continue;
 		}
 
 		uint32_t rise_tick = next_rise_tick;
 		current_fall_tick = rise_tick + PULSE_WIDTH_US;
 
-		*dac_tick = rise_tick - DAC_LEAD_US;
+		*dac_tick = dacTickForRise(rise_tick);
 		*output_tick = rise_tick;
 		*trigger_tick = rise_tick;
 		scheduled_dac_code = amplitudeToDacCode(amplitude);
@@ -401,6 +457,7 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 		*stim_mode = mode;
 		*update_stim_mode = true;
 		*held_command = command_is_held;
+		*dac_event = true;
 
 		last_dac_event_tick = *dac_tick;
 		last_output_event_tick = *output_tick;
@@ -417,42 +474,53 @@ static bool buildNextEvent(stimCommandQueue* stim_queue,
 }
 
 /*
- * Fill a released half of all four event buffers. If the command queue runs
- * empty, insert a parked compare value after the final falling event. This
- * safely stalls the compare chain until servicePulseDma() stops the streams.
+ * Fill matching portions of the edge and DAC buffers. Each edge half contains
+ * 32 rising and 32 falling events, while the matching DAC half contains only
+ * the 32 rising-event updates. If the queue runs empty, park every stream on
+ * an expired compare value until servicePulseDma() stops it.
  */
 static bool fillDmaRange(stimCommandQueue* stim_queue,
-		uint16_t start_index, uint16_t length)
+		uint16_t edge_start, uint16_t edge_length,
+		uint16_t dac_start, uint16_t dac_length)
 {
-	uint16_t end_index = start_index + length;
+	uint16_t edge_end = edge_start + edge_length;
+	uint16_t dac_end = dac_start + dac_length;
+	uint16_t dac_index = dac_start;
 
-	for (uint16_t i = start_index; i < end_index; i++)
+	for (uint16_t edge_index = edge_start;
+			edge_index < edge_end; edge_index++)
 	{
+		uint32_t dac_tick;
+		uint16_t dac_code;
 		uint32_t gpio_bsrr;
 		uint8_t stim_mode;
 		bool update_stim_mode;
 		bool held_command;
+		bool dac_event;
 
-		if (!buildNextEvent(stim_queue, &dac_dma_ticks[i],
-				&output_dma_ticks[i], &trigger_dma_ticks[i],
-				&dac_dma_codes[i], &gpio_bsrr,
-				&stim_mode, &update_stim_mode, &held_command))
+		if (!buildNextEvent(stim_queue, &dac_tick,
+				&output_dma_ticks[edge_index],
+				&trigger_dma_ticks[edge_index], &dac_code, &gpio_bsrr,
+				&stim_mode, &update_stim_mode, &held_command, &dac_event))
 		{
 			uint32_t parked_dac_tick = last_dac_event_tick - 1U;
 			uint32_t parked_output_tick = last_output_event_tick - 1U;
 			uint32_t parked_trigger_tick =
 					last_trigger_event_tick - 1U;
 
-			for (uint16_t park = i; park < end_index; park++)
+			for (uint16_t park = edge_index; park < edge_end; park++)
 			{
-				dac_dma_ticks[park] = parked_dac_tick;
 				output_dma_ticks[park] = parked_output_tick;
 				trigger_dma_ticks[park] = parked_trigger_tick;
-				dac_dma_codes[park] = 0U;
 				gpio_bsrr_values[park] = 0U;
 				stim_mode_values[park] = 0U;
 				stim_mode_updates[park] = false;
 				held_command_events[park] = false;
+			}
+			for (uint16_t park = dac_index; park < dac_end; park++)
+			{
+				dac_dma_ticks[park] = parked_dac_tick;
+				dac_dma_codes[park] = 0U;
 			}
 
 			stop_planned = true;
@@ -460,13 +528,41 @@ static bool fillDmaRange(stimCommandQueue* stim_queue,
 			return false;
 		}
 
-		gpio_bsrr_values[i] = gpio_bsrr;
-		stim_mode_values[i] = stim_mode;
-		stim_mode_updates[i] = update_stim_mode;
-		held_command_events[i] = held_command;
+		if (dac_event)
+		{
+			if (dac_index >= dac_end)
+			{
+				return false;
+			}
+			dac_dma_ticks[dac_index] = dac_tick;
+			dac_dma_codes[dac_index] = dac_code;
+			dac_index++;
+		}
+
+		gpio_bsrr_values[edge_index] = gpio_bsrr;
+		stim_mode_values[edge_index] = stim_mode;
+		stim_mode_updates[edge_index] = update_stim_mode;
+		held_command_events[edge_index] = held_command;
 	}
 
-	return true;
+	return dac_index == dac_end;
+}
+
+/* HAL_TIM_OC_Start_DMA() enables TIM2 as part of starting each channel. Keep
+ * the counter parked just past the first DAC compare while each DMA stream is
+ * armed, then force the timer back off. startPulseDma() restores the real
+ * counter and starts all streams together after setup is complete.
+ */
+static HAL_StatusTypeDef armTimerDmaChannel(uint32_t channel,
+		const uint32_t* event_ticks, uint16_t event_count,
+		uint32_t setup_tick)
+{
+	__HAL_TIM_SET_COUNTER(&htim2, setup_tick);
+	HAL_StatusTypeDef status = HAL_TIM_OC_Start_DMA(&htim2, channel,
+			event_ticks, event_count);
+	CLEAR_BIT(htim2.Instance->CR1, TIM_CR1_CEN);
+
+	return status;
 }
 
 static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
@@ -480,26 +576,34 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
 	uint8_t first_mode;
 	bool update_first_mode;
 	bool first_held;
+	bool first_dac_event;
+
+	/* The timer remains frozen while every DMA stream is prepared. */
+	CLEAR_BIT(htim2.Instance->CR1, TIM_CR1_CEN);
+	uint32_t timer_resume_tick = __HAL_TIM_GET_COUNTER(&htim2);
 
 	next_rise_tick = first_rise_tick;
 	next_event_phase = NEXT_EVENT_RISE;
+	earliest_dac_event_tick = timer_resume_tick + 1U;
 	stop_planned = false;
 
 	if (!buildNextEvent(stim_queue, &first_dac_tick, &first_output_tick,
 			&first_trigger_tick, &first_dac_code, &first_gpio_value,
-			&first_mode, &update_first_mode, &first_held))
+			&first_mode, &update_first_mode, &first_held,
+			&first_dac_event))
 	{
 		return HAL_OK;
 	}
-	if (!update_first_mode)
+	if (!update_first_mode || !first_dac_event)
 	{
 		return HAL_ERROR;
 	}
 
-	/* The circular buffers hold events 1..DMA_EVENT_COUNT. Event zero is
-	 * written directly into the peripheral registers before DMA starts.
+	/* The circular buffers hold the events after the directly seeded rising
+	 * edge. DAC buffers have one entry per pulse; edge buffers have two.
 	 */
-	(void)fillDmaRange(stim_queue, 0U, DMA_EVENT_COUNT);
+	(void)fillDmaRange(stim_queue, 0U, EDGE_EVENT_COUNT,
+			0U, DAC_EVENT_COUNT);
 
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, first_dac_tick);
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, first_output_tick);
@@ -529,29 +633,30 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
 	dma_half_done_mask[1] = 0U;
 
 	if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1,
-			(uint32_t*)dac_dma_codes, DMA_EVENT_COUNT,
+			(uint32_t*)dac_dma_codes, DAC_EVENT_COUNT,
 			DAC_ALIGN_12B_R) != HAL_OK)
 	{
 		return HAL_ERROR;
 	}
 
-	/* Starting CH3 enables TIM2. The first event is START_MARGIN_US in the
-	 * future, leaving ample time to start the remaining channels afterward.
+	/* Each HAL start briefly enables TIM2. Park it just beyond the first DAC
+	 * tick so none of the real compares can occur during channel setup.
 	 */
-	if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_3,
-			trigger_dma_ticks, DMA_EVENT_COUNT) != HAL_OK)
+	uint32_t setup_tick = first_dac_tick + 1U;
+	if (armTimerDmaChannel(TIM_CHANNEL_1, dac_dma_ticks,
+			DAC_EVENT_COUNT, setup_tick) != HAL_OK)
 	{
 		return HAL_ERROR;
 	}
 
-	if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_1,
-			dac_dma_ticks, DMA_EVENT_COUNT) != HAL_OK)
+	if (armTimerDmaChannel(TIM_CHANNEL_3, trigger_dma_ticks,
+			EDGE_EVENT_COUNT, setup_tick) != HAL_OK)
 	{
 		return HAL_ERROR;
 	}
 
-	if (HAL_TIM_OC_Start_DMA(&htim2, TIM_CHANNEL_2,
-			output_dma_ticks, DMA_EVENT_COUNT) != HAL_OK)
+	if (armTimerDmaChannel(TIM_CHANNEL_2, output_dma_ticks,
+			EDGE_EVENT_COUNT, setup_tick) != HAL_OK)
 	{
 		return HAL_ERROR;
 	}
@@ -565,6 +670,10 @@ static HAL_StatusTypeDef startPulseDma(stimCommandQueue* stim_queue,
 	__HAL_TIM_ENABLE_IT(&htim2, TIM_IT_CC2);
 
 	pulse_dma_active = true;
+	__HAL_TIM_SET_COUNTER(&htim2, timer_resume_tick);
+	__HAL_TIM_CLEAR_FLAG(&htim2,
+			TIM_FLAG_CC1 | TIM_FLAG_CC2 | TIM_FLAG_CC3);
+	SET_BIT(htim2.Instance->CR1, TIM_CR1_CEN);
 
 	return HAL_OK;
 }
@@ -698,9 +807,11 @@ void servicePulseDma(stimCommandQueue* stim_queue)
 		{
 			dma_half_done_mask[half] = 0U;
 
-			uint16_t start_index = half * DMA_EVENTS_PER_HALF;
-			(void)fillDmaRange(stim_queue, start_index,
-					DMA_EVENTS_PER_HALF);
+			uint16_t edge_start = half * EDGE_EVENTS_PER_HALF;
+			uint16_t dac_start = half * DAC_EVENTS_PER_HALF;
+			(void)fillDmaRange(stim_queue,
+					edge_start, EDGE_EVENTS_PER_HALF,
+					dac_start, DAC_EVENTS_PER_HALF);
 		}
 	}
 }
@@ -740,11 +851,11 @@ void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef* htim)
 	/* DMA loads the next CCR2 value at the current compare. Waiting until the
 	 * interrupt consumes the final output entry prevents an early buffer refill.
 	 */
-	if (output_event_index == DMA_EVENTS_PER_HALF)
+	if (output_event_index == EDGE_EVENTS_PER_HALF)
 	{
 		dma_half_done_mask[0] |= DMA_DONE_OUTPUT_CC2;
 	}
-	else if (output_event_index == DMA_EVENT_COUNT)
+	else if (output_event_index == EDGE_EVENT_COUNT)
 	{
 		output_event_index = 0U;
 		dma_half_done_mask[1] |= DMA_DONE_OUTPUT_CC2;

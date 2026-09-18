@@ -35,7 +35,7 @@ extern "C" {
 extern UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN Private defines */
-#define RX_DMA_SIZE 256
+#define RX_DMA_SIZE 512
 extern uint8_t rx_dma_buffer[RX_DMA_SIZE];
 extern volatile uint8_t huart3_tx_complete;
 extern volatile uint8_t tx_dma_packet;
