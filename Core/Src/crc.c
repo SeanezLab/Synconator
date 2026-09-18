@@ -17,7 +17,9 @@
 #define CMD_FIELD_COUNT 4U
 #define CMD_LENGTH      (CMD_FIELD_COUNT * sizeof(float))
 #define GPIO_MASK_MAX   0x01FFU
-#define DAC_CODE_MAX    4095U
+#define DAC_CODE_MAX    4095
+#define MAX_PERIOD		4294967200
+#define MIN_PERIOD		50U
 
 // Fill in Below for each new protocol ///////////////////////////////////////////////////////////////////////
 char *payload_entries[] = {"status", "queue_length","queue_time","debug","frame", "watchdog"};
@@ -69,6 +71,21 @@ static inline uint16_t clamp_gpio_mask_from_f32(float x)
         return (uint16_t)v;
     }
 }
+
+static inline uint32_t clamp_period_from_f32(float x)
+{
+	if (x <= (float)MIN_PERIOD)
+	{
+		return MIN_PERIOD;
+	}
+	if (x >= (float)MAX_PERIOD)
+	{
+		return MAX_PERIOD;
+	}
+
+	return (uint32_t)(x + 0.5f);
+}
+
 
 static inline uint16_t clamp_amplitude_from_f32(float x)
 {
@@ -296,7 +313,7 @@ static void handle_valid_payload(const uint8_t* payload,
 		float current_period;
 		memcpy(&current_period, payload + command_start + sizeof(float),
 				sizeof(current_period));
-		incoming_period[i] = (uint32_t)current_period;
+		incoming_period[i] = clamp_period_from_f32(current_period);
 
 		float current_gpio;
 		memcpy(&current_gpio, payload + command_start + 2U * sizeof(float),
