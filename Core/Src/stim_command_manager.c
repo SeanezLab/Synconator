@@ -15,7 +15,7 @@
 
 #define WATCHDOG_COUNTER_MAX 12000U
 #define EDGES_PER_PULSE        2U
-#define PULSES_PER_DMA_HALF    32U
+#define PULSES_PER_DMA_HALF    5U
 #define EDGE_EVENTS_PER_HALF   (EDGES_PER_PULSE * PULSES_PER_DMA_HALF)
 #define EDGE_EVENT_COUNT       (2U * EDGE_EVENTS_PER_HALF)
 #define DAC_EVENTS_PER_HALF    PULSES_PER_DMA_HALF
@@ -38,6 +38,7 @@
 #define OUTPUT_ALL_PINS       (Sync_Pin | D188_1_Pin | D188_2_Pin | \
                                D188_3_Pin | D188_4_Pin | D188_5_Pin | \
                                D188_6_Pin | D188_7_Pin | D188_8_Pin)
+#define D188_COMMAND_MASK     0x01FEU
 
 typedef enum
 {
@@ -125,6 +126,29 @@ static uint32_t gpioMaskToBsrr(uint16_t gpio_mask)
 	return (uint32_t)pins_to_set | ((uint32_t)pins_to_reset << 16U);
 }
 
+/* Return the zero-based D188 channel when exactly one D188 bit is selected.
+ * Bit zero is Sync and is intentionally ignored.
+ */
+static bool singleD188Channel(uint16_t gpio_mask, uint8_t* channel)
+{
+	uint16_t d188_mask = (gpio_mask & D188_COMMAND_MASK) >> 1U;
+	if ((d188_mask == 0U) || ((d188_mask & (d188_mask - 1U)) != 0U))
+	{
+		return false;
+	}
+
+	for (uint8_t i = 0U; i < AMPLITUDE_OVERRIDE_CHANNELS; i++)
+	{
+		if ((d188_mask & (1U << i)) != 0U)
+		{
+			*channel = i;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static bool isRetainedContinuousCommand(const stimCommandQueue* stim_queue)
 {
 	return (stim_queue->count == 1U) &&
@@ -146,6 +170,8 @@ void stim_command_init(stimCommandQueue* stim_queue)
 	memset(stim_queue->gpioArray, 0, sizeof(stim_queue->gpioArray));
 	memset(stim_queue->ampArray, 0, sizeof(stim_queue->ampArray));
 	memset(stim_queue->periodArray, 0, sizeof(stim_queue->periodArray));
+	memset(stim_queue->amplitude_override, 0,sizeof(stim_queue->amplitude_override));
+	stim_queue->amplitude_override_active = 0U;
 	resetQueuedCommands(stim_queue);
 	stim_queue->busy_flag = 0;
 	stim_queue->stop_flag = 0;
@@ -261,9 +287,18 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio,
 	for (uint16_t i = 0U; i < cmd_size; i++)
 	{
 		uint16_t index = (stim_queue->tail + i) % MAX_CMD_LENGTH;
+		uint16_t command_amplitude = amp[i];
+		uint8_t override_channel;
+		if ((stim_queue->amplitude_override_active != 0U) &&
+				singleD188Channel(gpio[i], &override_channel))
+		{
+			command_amplitude =
+					stim_queue->amplitude_override[override_channel];
+		}
+
 		stim_queue->modeArray[index] = mode[i];
 		stim_queue->gpioArray[index] = gpio[i];
-		stim_queue->ampArray[index] = amp[i];
+		stim_queue->ampArray[index] = command_amplitude;
 		stim_queue->periodArray[index] = period[i];
 	}
 

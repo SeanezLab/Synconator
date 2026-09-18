@@ -20,12 +20,15 @@ extern "C" {
 // Keep the queued command arrays below 6 KB total. Each command contains a
 // mode, GPIO mask, amplitude, and period.
 #define MAX_CMD_LENGTH 400
+#define AMPLITUDE_OVERRIDE_CHANNELS 8U
 
 typedef struct{
 	uint8_t modeArray[MAX_CMD_LENGTH]; // Per-command stimulation mode (0 single, 1 continuous)
 	uint16_t gpioArray[MAX_CMD_LENGTH]; // Per-command GPIO bit mask
 	uint16_t ampArray[MAX_CMD_LENGTH]; // Requested amplitude in mA
 	uint32_t periodArray[MAX_CMD_LENGTH]; // Time to the next pulse in microseconds
+	uint16_t amplitude_override[AMPLITUDE_OVERRIDE_CHANNELS];
+	uint8_t amplitude_override_active;
 	float totalTime; // In seconds
 	uint16_t remainingSpace;
 	uint16_t head;

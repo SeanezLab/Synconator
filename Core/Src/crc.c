@@ -17,6 +17,7 @@
 #define CMD_FIELD_COUNT 4U
 #define CMD_LENGTH      (CMD_FIELD_COUNT * sizeof(float))
 #define GPIO_MASK_MAX   0x01FFU
+#define DAC_CODE_MAX    4095U
 
 // Fill in Below for each new protocol ///////////////////////////////////////////////////////////////////////
 char *payload_entries[] = {"status", "queue_length","queue_time","debug","frame", "watchdog"};
@@ -67,6 +68,20 @@ static inline uint16_t clamp_gpio_mask_from_f32(float x)
     {
         return (uint16_t)v;
     }
+}
+
+static inline uint16_t clamp_amplitude_from_f32(float x)
+{
+	if (x <= 0.0f)
+	{
+		return 0U;
+	}
+	if (x >= (float)DAC_CODE_MAX)
+	{
+		return DAC_CODE_MAX;
+	}
+
+	return (uint16_t)(x + 0.5f);
 }
 
 static inline int16_t clamp_i16_from_f32(float x)
@@ -226,6 +241,29 @@ static void handle_valid_payload(const uint8_t* payload,
 		else if (command == 2.0f)
 		{
 			stim_queue.watchdog_counter = 0;
+		}
+		else if (command == 3.0f)
+		{
+			stim_queue.amplitude_override_active ^= 1U;
+		}
+		return;
+	}
+	if (condition == 3.0f)
+	{
+		if (payload_length !=
+				((1U + AMPLITUDE_OVERRIDE_CHANNELS) * sizeof(float)))
+		{
+			return;
+		}
+
+		for (uint8_t i = 0U; i < AMPLITUDE_OVERRIDE_CHANNELS; i++)
+		{
+			float amplitude;
+			memcpy(&amplitude,
+					payload + ((size_t)(i + 1U) * sizeof(float)),
+					sizeof(amplitude));
+			stim_queue.amplitude_override[i] =
+					clamp_amplitude_from_f32(amplitude);
 		}
 		return;
 	}

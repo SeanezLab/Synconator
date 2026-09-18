@@ -119,7 +119,7 @@ int main(void)
   // starting timers
 
      HAL_TIM_Base_Start_IT(&htim6); // Communications loop (1000hz)
-//     HAL_TIM_Base_Start_IT(&htim7); // DMA Servicing loop (100khz)
+     HAL_TIM_Base_Start_IT(&htim7); // DMA Servicing loop (100khz)
 
 
 
@@ -144,7 +144,7 @@ int main(void)
 		  run_com_loop();
 	  }
 //	  HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
-	  servicePulseDma(&stim_queue);
+//	  servicePulseDma(&stim_queue);
 //	  HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
     /* USER CODE END WHILE */
 
@@ -217,6 +217,8 @@ void run_com_loop(void)
 	// Increment our connection watchdog timer
 	incrementWatchdogCounter(&stim_queue);
 //	Send our current state
+	uint8_t amp_ctrl_mode = (uint8_t)stim_queue.amplitude_override_active;
+	memcpy(status, &amp_ctrl_mode, sizeof(amp_ctrl_mode));
 	increment_frame_counter();
 	memcpy(frame, &frame_counter, (size_t)sizeof(frame_counter));
 	// Count remaining commands

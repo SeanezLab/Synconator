@@ -438,9 +438,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	if (htim->Instance == TIM7)
 	{
 		//Run DMA Servicing
-//		  HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
-//		  servicePulseDma(&stim_queue);
-//		  HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
+		  HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
+		  servicePulseDma(&stim_queue);
+		  HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
 	}
 }
 /* USER CODE END 1 */
