@@ -289,18 +289,9 @@ uint8_t pushCommand(stimCommandQueue* stim_queue, uint8_t* mode, uint16_t* gpio,
 	for (uint16_t i = 0U; i < cmd_size; i++)
 	{
 		uint16_t index = (stim_queue->tail + i) % MAX_CMD_LENGTH;
-		uint16_t command_amplitude = amp[i];
-		uint8_t override_channel;
-		if ((stim_queue->amplitude_override_active != 0U) &&
-				singleD188Channel(gpio[i], &override_channel))
-		{
-			command_amplitude =
-					stim_queue->amplitude_override[override_channel];
-		}
-
 		stim_queue->modeArray[index] = mode[i];
 		stim_queue->gpioArray[index] = gpio[i];
-		stim_queue->ampArray[index] = command_amplitude;
+		stim_queue->ampArray[index] = amp[i];
 		stim_queue->periodArray[index] = period[i];
 	}
 
@@ -334,29 +325,29 @@ uint8_t popCommand(stimCommandQueue* stim_queue, uint8_t* mode_in, uint16_t* gpi
 		return 0U;
 	}
 
-	if (isRetainedContinuousCommand(stim_queue))
+	// Amplitude override
+	uint16_t command_amplitude = stim_queue->ampArray[stim_queue->head];
+	uint8_t override_channel;
+	if ((stim_queue->amplitude_override_active != 0U) &&
+			singleD188Channel(stim_queue->gpioArray[stim_queue->head], &override_channel))
 	{
-		*mode_in = stim_queue->modeArray[stim_queue->head];
-		*gpio_in = stim_queue->gpioArray[stim_queue->head];
-		*amp_in = stim_queue->ampArray[stim_queue->head];
-		*time_in = stim_queue->periodArray[stim_queue->head];
-		stim_queue->last_mode = *mode_in;
-		stim_queue->last_gpio = *gpio_in;
-		stim_queue->last_amp = *amp_in;
-		stim_queue->last_period = *time_in;
-		stim_queue->queue_lock = 0U;
-		return 1U;
+		command_amplitude =
+				stim_queue->amplitude_override[override_channel];
 	}
-
 
 	*mode_in = stim_queue->modeArray[stim_queue->head];
 	*gpio_in = stim_queue->gpioArray[stim_queue->head];
-	*amp_in = stim_queue->ampArray[stim_queue->head];
+	*amp_in = command_amplitude;
 	*time_in = stim_queue->periodArray[stim_queue->head];
 	stim_queue->last_mode = *mode_in;
 	stim_queue->last_gpio = *gpio_in;
 	stim_queue->last_amp = *amp_in;
 	stim_queue->last_period = *time_in;
+	if (isRetainedContinuousCommand(stim_queue))
+	{
+		stim_queue->queue_lock = 0U;
+		return 1U;
+	}
 	stim_queue->head = (stim_queue->head + 1U) % MAX_CMD_LENGTH;
 	stim_queue->count--;
 	stim_queue->remainingSpace = MAX_CMD_LENGTH - stim_queue->count;

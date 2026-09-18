@@ -439,7 +439,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	{
 		//Run DMA Servicing
 //		  HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
-		  servicePulseDma(&stim_queue);
+//		  servicePulseDma(&stim_queue);
 //		  HAL_GPIO_TogglePin(Timing_GPIO_Port, Timing_Pin);
 	}
 }
