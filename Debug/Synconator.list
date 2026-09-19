@@ -7443,9 +7443,9 @@ void MX_TIM7_Init(void)
  8002f30:	4b11      	ldr	r3, [pc, #68]	@ (8002f78 <MX_TIM7_Init+0x64>)
  8002f32:	2200      	movs	r2, #0
  8002f34:	609a      	str	r2, [r3, #8]
-  htim7.Init.Period = 99;
+  htim7.Init.Period = 9;
  8002f36:	4b10      	ldr	r3, [pc, #64]	@ (8002f78 <MX_TIM7_Init+0x64>)
- 8002f38:	2263      	movs	r2, #99	@ 0x63
+ 8002f38:	2209      	movs	r2, #9
  8002f3a:	60da      	str	r2, [r3, #12]
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
  8002f3c:	4b0e      	ldr	r3, [pc, #56]	@ (8002f78 <MX_TIM7_Init+0x64>)
@@ -7873,9 +7873,9 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
  80031ba:	f003 0320 	and.w	r3, r3, #32
  80031be:	60fb      	str	r3, [r7, #12]
  80031c0:	68fb      	ldr	r3, [r7, #12]
-    HAL_NVIC_SetPriority(TIM7_IRQn, 1, 0);
+    HAL_NVIC_SetPriority(TIM7_IRQn, 0, 0);
  80031c2:	2200      	movs	r2, #0
- 80031c4:	2101      	movs	r1, #1
+ 80031c4:	2100      	movs	r1, #0
  80031c6:	2037      	movs	r0, #55	@ 0x37
  80031c8:	f000 fc79 	bl	8003abe <HAL_NVIC_SetPriority>
     HAL_NVIC_EnableIRQ(TIM7_IRQn);
@@ -8218,8 +8218,8 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
  80033e0:	2302      	movs	r3, #2
  80033e2:	67bb      	str	r3, [r7, #120]	@ 0x78
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
- 80033e4:	2301      	movs	r3, #1
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+ 80033e4:	2300      	movs	r3, #0
  80033e6:	67fb      	str	r3, [r7, #124]	@ 0x7c
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
  80033e8:	2303      	movs	r3, #3
